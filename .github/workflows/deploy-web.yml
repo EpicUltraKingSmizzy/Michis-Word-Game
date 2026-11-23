@@ -1,0 +1,55 @@
+name: Deploy web build
+
+# Builds the Flutter web app and publishes it to
+# https://github.com/MichisWordGame/MichisWordGame.github.io (GitHub Pages),
+# which serves https://michiswordgame.github.io
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+      - name: Build web
+        run: flutter build web --release --base-href /
+
+      - name: Add Pages extras (SPA fallback, deep-link files)
+        run: |
+          cd build/web
+          touch .nojekyll
+          # /join?code=ABCD: serve the app for the join path and any unknown path.
+          cp index.html 404.html
+          mkdir -p join && cp index.html join/index.html
+          cp -r ../../web_hosting/.well-known .
+          echo "Built from ${GITHUB_REPOSITORY}@${GITHUB_SHA}" > build-info.txt
+
+      - name: Publish to MichisWordGame/MichisWordGame.github.io
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          external_repository: MichisWordGame/MichisWordGame.github.io
+          publish_branch: main
+          publish_dir: build/web
+          force_orphan: true
+          enable_jekyll: false
+          user_name: github-actions[bot]
+          user_email: 41898282+github-actions[bot]@users.noreply.github.com
+          full_commit_message: Deploy ${{ github.repository }}@${{ github.sha }}

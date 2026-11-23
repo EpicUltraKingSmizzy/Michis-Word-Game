@@ -98,3 +98,9 @@ flutter_launcher_icons:
     image_path: assets/icon/app_icon.png
     background_color: "#6A7BFF"
     theme_color: "#3B0F5C"
+
+# peerdart 0.5.6 pins flutter_webrtc ^0.11, whose Android code uses the removed
+# v1 plugin embedding and no longer compiles. 1.x keeps the same Dart API that
+# peerdart uses (RTCPeerConnection / data channels).
+dependency_overrides:
+  flutter_webrtc: ^1.6.3
