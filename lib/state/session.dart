@@ -162,7 +162,7 @@ abstract class GameSession extends ChangeNotifier {
 
   @protected
   void end(String reason) {
-    if (endedReason != null) return;
+    if (endedReason != null || _disposed) return;
     endedReason = reason;
     _cancelTimers();
     notifyListeners();

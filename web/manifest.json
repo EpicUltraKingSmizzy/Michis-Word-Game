@@ -1,11 +1,11 @@
 {
-    "name": "michis_word_game",
-    "short_name": "michis_word_game",
-    "start_url": ".",
+    "name": "Michi's Word Game",
+    "short_name": "Michi's Words",
+    "start_url": "/",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#6A7BFF",
+    "theme_color": "#3B0F5C",
+    "description": "Find words in a shared letter grid with friends.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

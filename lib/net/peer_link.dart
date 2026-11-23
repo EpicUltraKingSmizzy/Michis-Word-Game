@@ -30,9 +30,12 @@ const Map<String, dynamic> iceConfig = {
   'sdpSemantics': 'unified-plan',
 };
 
+/// Set to true (e.g. with `?debug=1` on the web) to log PeerJS traffic.
+bool verbosePeerLogs = false;
+
 PeerOptions _options() => PeerOptions(
       config: iceConfig,
-      debug: kDebugMode ? LogLevel.Errors : LogLevel.Disabled,
+      debug: verbosePeerLogs ? LogLevel.All : (kDebugMode ? LogLevel.Errors : LogLevel.Disabled),
     );
 
 String _randomId() {
