@@ -77,14 +77,41 @@ void main() {
     expect(min5.keys.every((w) => w.length >= 5), isTrue);
   });
 
-  test('generated boards have plenty of words', () {
+  test('generated boards pass the quality filter', () {
     final d = realDictionary();
     final rng = Random(42);
     for (final size in [4, 5, 6]) {
-      final b = generateGoodBoard(size: size, minWordLength: 3, dictionary: d, random: rng);
-      expect(b.length, size * size);
-      expect(solveBoard(b, d).length, greaterThanOrEqualTo(targetWordCount(size)),
-          reason: '$size x $size\n$b');
+      for (final minLen in [3, 4, 5]) {
+        for (var i = 0; i < 5; i++) {
+          final b = generateGoodBoard(size: size, minWordLength: minLen, dictionary: d, random: rng);
+          expect(b.length, size * size);
+          final a = analyzeBoard(b, d, minWordLength: minLen);
+          expect(a.wordCount, greaterThanOrEqualTo(minWordsFor(size, minLen)), reason: '$size x $size min $minLen\n$b');
+          expect(a.deadTiles, isEmpty, reason: 'every letter is in some word\n$b');
+        }
+      }
+    }
+  });
+
+  test('analyzeBoard finds dead letters and matches solveBoard', () {
+    final d = realDictionary();
+    // X in the corner surrounded by consonants can't be in any word.
+    final b = Board(4, 'XBCD BCDF CATS DOGS'.replaceAll(' ', '').split(''));
+    final a = analyzeBoard(b, d);
+    expect(a.words.keys.toSet(), solveBoard(b, d).keys.toSet());
+    expect(a.deadTiles, contains(0));
+    expect(a.covered[8], isTrue, reason: 'C of CAT');
+    for (final e in a.words.entries) {
+      expect(b.wordForPath(e.value), e.key);
+    }
+    expect(isGoodBoard(a, 4, 3), isFalse);
+  });
+
+  test('minimum word table covers every setting', () {
+    for (final size in [4, 5, 6]) {
+      for (final minLen in [3, 4, 5]) {
+        expect(minWordsFor(size, minLen), greaterThan(0));
+      }
     }
   });
 }

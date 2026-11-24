@@ -28,6 +28,7 @@ void main() {
   final app = local
       ? AppState(hostLinkFactory: createLocalHostLink, clientLinkFactory: createLocalClientLink)
       : AppState();
+  app.watchLifecycle();
   _listenForJoinLinks(app);
   unawaited(app.init());
   runApp(MichisWordGame(app: app));

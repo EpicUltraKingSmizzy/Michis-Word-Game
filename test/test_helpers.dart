@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:archive/archive.dart';
 import 'dart:io';
 
 import 'package:michis_word_game/logic/dictionary.dart';
@@ -10,3 +12,11 @@ Dictionary realDictionary() => _cached ??= dictionaryFromAssets(
       File('assets/dict/words.txt.gz').readAsBytesSync(),
       File('assets/dict/blocklist.txt').readAsStringSync(),
     );
+
+/// The real dictionary minus one word (to fake a different version).
+Dictionary realDictionaryWithout(String word) {
+  final words = utf8
+      .decode(const GZipDecoder().decodeBytes(File('assets/dict/words.txt.gz').readAsBytesSync()))
+      .split('\n');
+  return Dictionary.fromWords(words.where((w) => w.trim() != word));
+}

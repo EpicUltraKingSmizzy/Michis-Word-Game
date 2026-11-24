@@ -43,7 +43,7 @@ dependencies:
   confetti: ^0.8.0
   archive: ^4.7.1
   web: ^1.1.2
-
+  mobile_scanner: ^7.5.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -104,3 +104,7 @@ flutter_launcher_icons:
 # peerdart uses (RTCPeerConnection / data channels).
 dependency_overrides:
   flutter_webrtc: ^1.6.3
+  # Patched copy of peerdart 0.5.6 (MIT): keeps data connections open through
+  # temporary ICE "disconnected" states. See third_party/peerdart/PATCHES.md.
+  peerdart:
+    path: third_party/peerdart

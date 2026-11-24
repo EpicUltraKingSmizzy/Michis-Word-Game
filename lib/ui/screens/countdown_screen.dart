@@ -17,8 +17,18 @@ class CountdownScreen extends StatefulWidget {
 }
 
 class _CountdownScreenState extends State<CountdownScreen> with SingleTickerProviderStateMixin {
-  late final Ticker _ticker = createTicker((_) => setState(() {}))..start();
+  // Created in initState: a lazy `late final` ticker was never touched until
+  // dispose, so it never started and the screen stayed on "3".
+  late final Ticker _ticker;
   int _lastShown = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = createTicker((_) {
+      if (mounted) setState(() {});
+    })..start();
+  }
 
   @override
   void dispose() {

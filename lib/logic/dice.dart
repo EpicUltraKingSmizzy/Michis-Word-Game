@@ -5,7 +5,10 @@ import 'dart:math';
 
 import 'board.dart';
 import 'dictionary.dart';
+import 'grid_rules.dart';
 import 'solver.dart';
+
+export 'grid_rules.dart';
 
 /// Faces of a die. `Q` always becomes the `QU` tile.
 typedef Die = String;
@@ -51,34 +54,40 @@ Board rollBoard(int size, Random random) {
   return Board(size, tiles);
 }
 
-/// Minimum number of findable words we want on a board of each size.
-int targetWordCount(int size) => switch (size) {
-      4 => 35,
-      5 => 80,
-      _ => 140,
-    };
+/// True when every tile is part of some word and there are enough words.
+bool isGoodBoard(BoardAnalysis a, int size, int minWordLength) =>
+    (!rejectDeadLetters || a.deadTiles.isEmpty) && a.wordCount >= minWordsFor(size, minWordLength);
 
-/// Rolls boards until one has a decent number of words (or attempts run out,
-/// in which case the richest board seen is returned).
+/// Rolls boards until one passes [isGoodBoard]: no "dead" letters that can't
+/// be used in any word, and at least [minWordsFor] words. After [attempts]
+/// rolls it settles for the best board seen (fewest dead tiles, then most
+/// words), so dealing a board never stalls.
 Board generateGoodBoard({
   required int size,
   required int minWordLength,
   required Dictionary dictionary,
   Random? random,
-  int attempts = 40,
+  int attempts = maxBoardRolls,
+  void Function(int tries)? onDone,
 }) {
   final rng = random ?? Random();
   Board? best;
-  var bestCount = -1;
-  final target = targetWordCount(size);
+  var bestDead = 1 << 30, bestCount = -1;
   for (var i = 0; i < attempts; i++) {
     final board = rollBoard(size, rng);
-    final count = solveBoard(board, dictionary, minWordLength: minWordLength).length;
-    if (count > bestCount) {
-      best = board;
-      bestCount = count;
+    final a = analyzeBoard(board, dictionary, minWordLength: minWordLength);
+    final dead = a.deadTiles.length;
+    if (isGoodBoard(a, size, minWordLength)) {
+      onDone?.call(i + 1);
+      return board;
     }
-    if (count >= target) break;
+    final better = dead < bestDead || (dead == bestDead && a.wordCount > bestCount);
+    if (better) {
+      best = board;
+      bestDead = dead;
+      bestCount = a.wordCount;
+    }
   }
+  onDone?.call(attempts);
   return best!;
 }

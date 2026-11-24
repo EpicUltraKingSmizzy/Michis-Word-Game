@@ -28,7 +28,7 @@ class HostScreen extends StatelessWidget {
     final url = joinUrl(session.roomCode);
     final box = context.findRenderObject() as RenderBox?;
     await SharePlus.instance.share(ShareParams(
-      text: "Come play Michi's Word Game with me! Tap to join room ${session.roomCode}: $url",
+      text: "Come play Michi's Word Game with me!\n$url",
       subject: "Join my Michi's Word Game",
       sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
     ));

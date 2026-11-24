@@ -5,8 +5,11 @@
       {
         "appIDs": ["APPLE_TEAM_ID.io.github.michiswordgame.michisWordGame"],
         "appID": "APPLE_TEAM_ID.io.github.michiswordgame.michisWordGame",
-        "components": [{ "/": "/join*", "comment": "Room invites" }],
-        "paths": ["/join*"]
+        "components": [
+          { "/": "/join*", "comment": "Room invites" },
+          { "/": "/challenge*", "comment": "Challenge links" }
+        ],
+        "paths": ["/join*", "/challenge*"]
       }
     ]
   }

@@ -46,8 +46,10 @@ abstract class HostLink {
 
 /// A player's connection to a host.
 abstract class ClientLink {
-  /// Connects to the host of [roomCode]. Throws [LinkException].
-  Future<void> connect(String roomCode);
+  /// Connects to the host of [roomCode], retrying for a while if the host
+  /// can't be reached yet (e.g. their app is in the background). [onWaiting]
+  /// fires once when the first try fails. Throws [LinkException].
+  Future<void> connect(String roomCode, {void Function()? onWaiting});
   Stream<Map<String, dynamic>> get messages;
 
   /// Fires once when the connection to the host is lost.

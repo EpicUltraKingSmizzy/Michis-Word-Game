@@ -42,6 +42,10 @@ class _LocalHostLink implements HostLink {
       final from = m['from'] as String;
       switch (m['kind']) {
         case 'connect':
+          if (_clients.contains(from)) {
+            _post(ch, {'kind': 'accept', 'to': from});
+            return;
+          }
           _clients.add(from);
           _post(ch, {'kind': 'accept', 'to': from});
           _events.add(ClientConnected(from));
@@ -93,7 +97,7 @@ class _LocalClientLink implements ClientLink {
   Future<void> get closed => _closed.future;
 
   @override
-  Future<void> connect(String roomCode) async {
+  Future<void> connect(String roomCode, {void Function()? onWaiting}) async {
     final ch = _channel(roomCode);
     _ch = ch;
     final accepted = Completer<void>();
@@ -109,12 +113,24 @@ class _LocalClientLink implements ClientLink {
           if (!_closed.isCompleted) _closed.complete();
       }
     }).toJS;
-    _post(ch, {'kind': 'connect', 'from': _id, 'to': 'host'});
-    try {
-      await accepted.future.timeout(const Duration(seconds: 4));
-    } on TimeoutException {
-      ch.close();
-      throw LinkException(LinkErrorKind.roomNotFound, 'No local game with the code $roomCode is open in this browser.');
+    // Like the real link, keep knocking for a while so a host tab that is
+    // opened (or reloaded) a bit later still gets us.
+    final deadline = DateTime.now().add(const Duration(seconds: 60));
+    var waiting = false;
+    while (!accepted.isCompleted) {
+      _post(ch, {'kind': 'connect', 'from': _id, 'to': 'host'});
+      try {
+        await accepted.future.timeout(const Duration(seconds: 2));
+      } on TimeoutException {
+        if (_ch == null || DateTime.now().isAfter(deadline)) {
+          ch.close();
+          throw LinkException(LinkErrorKind.roomNotFound, 'No local game with the code $roomCode is open in this browser.');
+        }
+        if (!waiting) {
+          waiting = true;
+          onWaiting?.call();
+        }
+      }
     }
   }
 

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 
 import '../logic/dictionary.dart';
 import '../logic/models.dart';
@@ -9,6 +10,7 @@ import '../logic/room_code.dart';
 import '../logic/word_list.dart';
 import '../net/link.dart';
 import '../net/peer_link.dart';
+import '../platform/native_bridge.dart' as native;
 import 'profile_store.dart';
 import 'session.dart';
 
@@ -36,6 +38,11 @@ class AppState extends ChangeNotifier {
   GameSession? session;
   StreamSubscription<String>? _sessionSays;
   bool busy = false;
+
+  /// True while a join is retrying because the host didn't answer yet.
+  bool joinWaiting = false;
+  ClientLink? _joiningLink;
+  bool _joinCancelled = false;
 
   /// Room code from a join link, waiting for the dictionary to finish loading.
   String? pendingJoinCode;
@@ -151,31 +158,77 @@ class AppState extends ChangeNotifier {
       return;
     }
     busy = true;
+    joinWaiting = false;
+    _joinCancelled = false;
     joinCodeDraft = code;
+    screen = AppScreen.join;
     notifyListeners();
     try {
       final s = await ClientSession.join(
         dictionary: dictionary!,
-        linkFactory: _clientLinkFactory,
+        linkFactory: () => _joiningLink = _clientLinkFactory(),
         roomCode: code,
         name: name,
         avatar: avatar,
+        onWaiting: () {
+          joinWaiting = true;
+          notifyListeners();
+        },
       );
+      if (_joinCancelled) {
+        await s.leave();
+        s.dispose();
+        return;
+      }
       _attach(s);
     } on LinkException catch (e) {
       screen = AppScreen.join;
-      say(e.message);
+      if (!_joinCancelled) say(e.message);
     } catch (e) {
       screen = AppScreen.join;
-      say("I couldn't join that game. Try again! ($e)");
+      if (!_joinCancelled) say("I couldn't join that game. Try again! ($e)");
     } finally {
       busy = false;
+      joinWaiting = false;
+      _joiningLink = null;
       notifyListeners();
+    }
+  }
+
+  /// Stops a join that is still waiting for the host.
+  void cancelJoin() {
+    if (!busy) return;
+    _joinCancelled = true;
+    unawaited(_joiningLink?.close());
+  }
+
+  AppLifecycleListener? _lifecycle;
+  DateTime? _hiddenAt;
+
+  /// Watches the app going to the background and back. Nothing is torn down
+  /// on pause; on resume the host makes sure its room is still registered.
+  void watchLifecycle() {
+    _lifecycle ??= AppLifecycleListener(
+      onHide: () => _hiddenAt ??= DateTime.now(),
+      onPause: () => _hiddenAt ??= DateTime.now(),
+      onResume: _onResume,
+      onShow: _onResume,
+    );
+  }
+
+  void _onResume() {
+    final away = _hiddenAt == null ? Duration.zero : DateTime.now().difference(_hiddenAt!);
+    _hiddenAt = null;
+    final s = session;
+    if (s is HostSession) {
+      final link = s.link;
+      if (link is PeerHostLink) link.appResumed(away);
     }
   }
 
   void _attach(GameSession s) {
     session = s;
+    if (s is HostSession) unawaited(native.setHosting(true, code: s.roomCode));
     _sessionSays = s.mascotMessages.listen(say);
     s.addListener(_onSession);
     notifyListeners();
@@ -197,6 +250,7 @@ class AppState extends ChangeNotifier {
   void _detach() {
     final s = session;
     session = null;
+    if (s is HostSession) unawaited(native.setHosting(false));
     _sessionSays?.cancel();
     if (s != null) {
       s.removeListener(_onSession);

@@ -72,7 +72,7 @@ class FakeClientLink implements ClientLink {
   Future<void> get closed => _closed.future;
 
   @override
-  Future<void> connect(String roomCode) async {
+  Future<void> connect(String roomCode, {void Function()? onWaiting}) async {
     final h = network.hosts[roomCode];
     if (h == null) throw const LinkException(LinkErrorKind.roomNotFound, 'no room');
     _host = h;

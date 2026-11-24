@@ -2,6 +2,13 @@
     <!-- Multiplayer talks to the PeerJS server and other phones over the internet. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Keeps a hosted room reachable while the host is in another app. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- In-app QR scanner on the join screen. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="Michi's Words"
         android:name="${applicationName}"
@@ -34,10 +41,16 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="https" android:host="michiswordgame.github.io" android:pathPrefix="/join"/>
+                <data android:scheme="https" android:host="michiswordgame.github.io" android:pathPrefix="/challenge"/>
             </intent-filter>
             <!-- Let app_links handle incoming links instead of Flutter's router. -->
             <meta-data android:name="flutter_deeplinking_enabled" android:value="false"/>
         </activity>
+        <service
+            android:name=".HostKeepAliveService"
+            android:exported="false"
+            android:stopWithTask="true"
+            android:foregroundServiceType="dataSync"/>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -50,6 +63,13 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <!-- Lets the join screen open the phone's camera app. -->
+        <intent>
+            <action android:name="android.media.action.STILL_IMAGE_CAMERA"/>
+        </intent>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE"/>
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
