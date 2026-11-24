@@ -10,8 +10,11 @@ in the same grid of letters.
 ## How it plays
 
 - **Grid:** 4x4 (Classic), 5x5 (Big), or 6x6 (Super Big), rolled from
-  Boggle-style dice with a `Qu` tile. Boards are re-rolled until they have a
-  decent number of words.
+  Boggle-style dice with a `Qu` tile. Boards are re-rolled (up to 300 times,
+  a few ms) until **every letter is part of at least one word** and the board
+  has at least a minimum number of words for its size and shortest-word
+  setting. The minimums live in `lib/logic/grid_rules.dart`; see
+  `docs/grid_stats.md` for how they were picked (`dart run tool/grid_stats.dart`).
 - **Words:** drag across neighbouring tiles in any of the 8 directions without
   reusing a tile, then let go to submit. The shortest allowed word is 3, 4, or 5
   letters (host's choice).
@@ -22,8 +25,22 @@ in the same grid of letters.
 - **Results:** word counts, then a word-by-word replay on a mini grid. Shared
   words come first, then unique words ordered to keep the lead swapping. After
   that come highlights (personal best, most words, longest word, photo
-  finish, ...), the longest word on the board, and a confetti winner. Then
-  everyone goes back to the room for the next round.
+  finish, ...), the longest word on the board, and a confetti winner. During
+  the replay each word is spelled out on the grid, tile by tile. After the
+  last word, players tap through the rest at their own pace. Each player
+  heads back to the room when they're done; the host's Start button waits
+  until everyone connected is back ("still viewing results" in the list).
+- **Challenge a friend:** after a round, share a link like
+  `https://michiswordgame.github.io/challenge?d=...`. It carries the exact
+  board letters, the options, and everyone's names, avatars, scores, and found
+  words (as a bitset over the board's sorted word list), deflated and
+  base64url-encoded: about 140-200 characters for a 4x4, up to ~530 for a 6x6
+  with 4 players. No server or link shortener is involved. The friend plays the
+  same board solo and sees everyone's results together. It's one-way: the
+  original players don't see the friend's score.
+- **Chat:** the room has a chat at the bottom of the host and waiting screens:
+  photos (shrunk to 800px JPEG), replies, and emoji reactions (long-press a
+  message). The host relays everything; new players get the last 50 messages.
 - **Feel:** haptics only, no sound: a tick per tile, a thump for a valid word,
   and a buzz when you score on the results screen.
 
@@ -42,6 +59,17 @@ in the same grid of letters.
   On a phone with the app installed, the link opens the app (App Links /
   Universal Links). Otherwise it opens the web version, which joins
   automatically.
+- **Staying reachable:** while a phone hosts a room it runs an Android
+  foreground service ("Room ABCD is open" notification) so sharing the invite
+  from another app doesn't cut the room off. iOS gives the app only about 30
+  seconds in the background. If the host's connection to the matchmaking
+  server drops, it registers the same room id again. Joining players keep
+  knocking for up to 60 seconds ("Waiting for the host…"), so a host who pops
+  back into the app still gets them.
+- **Drops:** a player whose connection drops keeps their seat for 30 seconds
+  and rejoins automatically. Leaving with the button removes them right away.
+- `third_party/peerdart` is peerdart 0.5.6 with one patch: connections are no
+  longer closed on a temporary ICE "disconnected" state.
 - Known limits: STUN-only connections can fail on some mobile-data or strict
   school/work networks. The public PeerJS server has no uptime guarantee. When
   a connection fails, Michi explains it in a speech bubble.
@@ -72,7 +100,9 @@ loads. Profanity and sexual words are intentionally kept.
 ```
 lib/logic/   pure game logic (board, dice, trie, solver, path validation,
              scoring, replay order, highlights, room codes): unit tested
-lib/net/     transport interfaces, PeerJS link, local (tab) link, fake link
+lib/net/     transport interfaces, PeerJS link, local (tab) link, fake link,
+             message chunking
+lib/platform/ native bridge (camera app, background hosting), sharing
 lib/state/   app state, host/player sessions, profile + personal bests
 lib/ui/      theme, widgets, screens
 test/        unit tests, plus a full host + 2 players session over a fake link
@@ -86,8 +116,8 @@ Run `flutter analyze`, `flutter test`, then `flutter run` (or
 ### Web (GitHub Pages)
 
 `.github/workflows/deploy-web.yml` runs on every push to `main`. It analyzes,
-tests, builds the web app, adds `404.html` and `join/index.html` (so
-`/join?code=...` works), `.nojekyll`, and the `web_hosting/.well-known` files,
+tests, builds the web app, adds `404.html`, `join/index.html`, and
+`challenge/index.html` (so `/join?code=...` and `/challenge?d=...` work), `.nojekyll`, and the `web_hosting/.well-known` files,
 then pushes everything to
 [`MichisWordGame/MichisWordGame.github.io`](https://github.com/MichisWordGame/MichisWordGame.github.io)
 with an SSH deploy key. Pages serves that repo's `main` branch root.

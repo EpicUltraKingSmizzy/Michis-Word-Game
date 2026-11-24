@@ -57,15 +57,19 @@ jobs:
             echo "::warning::No signing secrets set; the APK will be signed with a throwaway debug key."
           fi
 
-      - name: Build APK
-        run: flutter build apk --release
+      - name: Build APKs
+        run: |
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk universal.apk
+          flutter build apk --release --split-per-abi --target-platform android-arm64
 
       - name: Attach to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk "michis-word-game-${TAG}.apk"
+          cp universal.apk "michis-word-game-${TAG}.apk"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "michis-word-game-${TAG}-arm64-v8a.apk"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "Michis Word Game ${TAG}" --generate-notes
           fi
-          gh release upload "$TAG" "michis-word-game-${TAG}.apk" --clobber
+          gh release upload "$TAG" "michis-word-game-${TAG}.apk" "michis-word-game-${TAG}-arm64-v8a.apk" --clobber

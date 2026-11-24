@@ -68,6 +68,8 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan the host's QR code to join their game.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Share a photo in the room chat.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Michi's Word Game connects directly to the other players' devices so you can play together.</string>
 </dict>

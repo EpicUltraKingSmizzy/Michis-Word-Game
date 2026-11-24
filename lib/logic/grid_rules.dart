@@ -3,7 +3,7 @@ library;
 
 /// Minimum number of findable words a board must have to be dealt, by grid
 /// size, then shortest-word setting. Chosen from 2,000 random boards per
-/// setting (see tool/grid_stats.dart and grid_stats.md). Set a value to 0 to
+/// setting (see tool/grid_stats.dart and docs/grid_stats.md). Set a value to 0 to
 /// turn the word-count check off for that setting.
 const Map<int, Map<int, int>> minWordsTable = {
   4: {3: 40, 4: 20, 5: 8},

@@ -5,8 +5,11 @@ import 'package:confetti/confetti.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../logic/board.dart';
+import '../../logic/challenge.dart';
 import '../../logic/models.dart';
 import '../../logic/replay_order.dart';
+import '../../platform/share.dart';
 import '../../state/app_state.dart';
 import '../../state/profile_store.dart';
 import '../../state/session.dart';
@@ -72,6 +75,28 @@ class _ResultsScreenState extends State<ResultsScreen> {
     return mounted && !_skip;
   }
 
+  Completer<void>? _tapWait;
+
+  /// Waits for the player to tap before moving on (so the highlights, the
+  /// longest word, and so on don't fly past).
+  Future<bool> _waitTap() async {
+    if (_skip || !mounted) return false;
+    final c = _tapWait = Completer<void>();
+    setState(() {});
+    await c.future;
+    if (identical(_tapWait, c)) _tapWait = null;
+    if (mounted) setState(() {});
+    return mounted && !_skip;
+  }
+
+  void _advance() {
+    final c = _tapWait;
+    if (c != null && !c.isCompleted) {
+      HapticFeedback.selectionClick();
+      c.complete();
+    }
+  }
+
   Future<void> _run() async {
     if (!await _wait(2600)) return _finish();
     setState(() => _stage = _Stage.replay);
@@ -93,18 +118,21 @@ class _ResultsScreenState extends State<ResultsScreen> {
       if (!await _wait(400)) return _finish();
     }
     if (r.replay.isEmpty && !await _wait(1500)) return _finish();
-    if (!await _wait(600)) return _finish();
+    // From here on, players tap through at their own pace.
+    if (!await _waitTap()) return _finish();
     setState(() => _stage = _Stage.highlights);
-    final hl = r.highlights.length + (_hasRecord ? 1 : 0);
-    if (!await _wait((1200 + hl * 900).clamp(2500, 7000))) return _finish();
+    if (!await _waitTap()) return _finish();
     if (r.longest != null) {
       setState(() => _stage = _Stage.longest);
-      if (!await _wait(4500)) return _finish();
+      if (!await _waitTap()) return _finish();
     }
     _finish();
   }
 
   void _finish() {
+    final c = _tapWait;
+    _tapWait = null;
+    if (c != null && !c.isCompleted) c.complete();
     if (!mounted || _stage == _Stage.winner) return;
     setState(() {
       for (final p in r.players) {
@@ -114,8 +142,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
     });
     _confetti.play();
   }
-
-  bool get _hasRecord => _record != null && (_record!.newOverallBest || _record!.newConfigBest);
 
   @override
   Widget build(BuildContext context) {
@@ -157,11 +183,23 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 ),
               ),
               Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 350),
-                  child: KeyedSubtree(key: ValueKey(_stage), child: body),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: _tapWait == null ? null : _advance,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 350),
+                    child: KeyedSubtree(key: ValueKey(_stage), child: body),
+                  ),
                 ),
               ),
+              if (_tapWait != null)
+                GestureDetector(
+                  onTap: _advance,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
+                    child: _TapHint(),
+                  ),
+                ),
             ],
           ),
           Align(
@@ -258,15 +296,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
           ),
           SizedBox(
             width: gridSide,
-            child: BoardView(
-              board: r.board,
-              looks: {
-                if (e != null)
-                  for (final t in e.path) t: _awarded ? TileLook.good : TileLook.selected,
-              },
-              line: e?.path ?? const [],
-              lineColor: _awarded ? Colors.white : MwgColors.pink,
-            ),
+            child: e == null
+                ? BoardView(board: r.board, looks: const {}, line: const [])
+                : _TracePath(
+                    key: ValueKey('trace-${e.word}'),
+                    board: r.board,
+                    path: e.path,
+                    done: _awarded,
+                    // Spell the word out during the first part of the step,
+                    // so scoring takes no extra time.
+                    duration: Duration(
+                        milliseconds: ((replayStepDuration(e).inMilliseconds - 400) * 0.8).round()),
+                  ),
           ),
           const SizedBox(height: 10),
           const _RulesPanel(),
@@ -353,6 +394,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
     });
   }
 
+  /// Shares a link to this exact board, options, and everyone's results.
+  Future<void> _challenge(BuildContext context) async {
+    final dict = widget.session.dictionary;
+    final url = challengeUrl(Challenge.fromResults(r, fromId: myId), dict);
+    debugPrint('[challenge] $url');
+    final shared = await shareOrCopy(context,
+        text: "Can you beat my score in Michi's Word Game?\n$url", subject: "Michi's Word Game challenge");
+    if (!shared) widget.app.say('Challenge link copied! Paste it to a friend.');
+  }
+
   // ---- Stage: winner ----
   Widget _winner() {
     final winners = r.winners;
@@ -418,10 +469,21 @@ class _ResultsScreenState extends State<ResultsScreen> {
             );
           }),
         const SizedBox(height: 16),
-        if (session.isHost && session is HostSession)
+        ChunkyButton(
+          label: 'Challenge a friend',
+          icon: Icons.emoji_events_rounded,
+          color: MwgColors.gold,
+          onPressed: () => _challenge(context),
+        ),
+        const SizedBox(height: 12),
+        if (session is HostSession)
           ChunkyButton(label: 'Back to the room', icon: Icons.replay_rounded, onPressed: session.backToRoom)
+        else if (session is ClientSession && session.hostBackInRoom)
+          ChunkyButton(label: 'Back to the room', icon: Icons.replay_rounded, onPressed: session.finishResults)
+        else if (session is ClientSession)
+          MascotBubble(text: 'Great game! Waiting for $host to head back to the room…')
         else
-          MascotBubble(text: 'Great game! Waiting for $host to head back to the room…'),
+          ChunkyButton(label: 'Done', icon: Icons.home_rounded, onPressed: widget.app.leaveSession),
       ],
     );
   }
@@ -663,6 +725,71 @@ class _StarPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _TapHint extends StatefulWidget {
+  @override
+  State<_TapHint> createState() => _TapHintState();
+}
+
+class _TapHintState extends State<_TapHint> with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+        opacity: Tween(begin: 0.55, end: 1.0).animate(_c),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0x55000000),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white38),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Tap to continue', style: uiText(17, weight: FontWeight.w700)),
+              const SizedBox(width: 6),
+              const Icon(Icons.touch_app_rounded, color: Colors.white),
+            ],
+          ),
+        ),
+      );
+}
+
+/// Spells a word out on the grid tile by tile over [duration], then turns
+/// green once the points are awarded ([done]).
+class _TracePath extends StatelessWidget {
+  const _TracePath({super.key, required this.board, required this.path, required this.duration, required this.done});
+  final Board board;
+  final List<int> path;
+  final Duration duration;
+  final bool done;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: duration,
+      builder: (_, v, _) {
+        final n = done ? path.length : (v * path.length).ceil().clamp(1, path.length);
+        final shown = path.sublist(0, n);
+        return BoardView(
+          board: board,
+          looks: {for (final t in shown) t: done ? TileLook.good : TileLook.selected},
+          line: shown,
+          lineColor: done ? Colors.white : MwgColors.pink,
+        );
+      },
+    );
+  }
 }
 
 /// Traces a path one tile at a time.

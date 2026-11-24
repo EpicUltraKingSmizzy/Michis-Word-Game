@@ -9,6 +9,7 @@ import 'net/local_link.dart';
 import 'net/peer_link.dart' show verbosePeerLogs;
 import 'state/app_state.dart';
 import 'state/session.dart';
+import 'ui/screens/challenge_screen.dart';
 import 'ui/screens/countdown_screen.dart';
 import 'ui/screens/host_screen.dart';
 import 'ui/screens/join_screen.dart';
@@ -90,6 +91,7 @@ class MichisWordGame extends StatelessWidget {
   Widget _inSession(GameSession s) {
     switch (s.phase) {
       case SessionPhase.lobby:
+        if (s is SoloSession) return ChallengeScreen(key: const ValueKey('challenge'), app: app, session: s);
         return s is HostSession
             ? HostScreen(key: const ValueKey('host'), app: app, session: s)
             : WaitingScreen(key: const ValueKey('waiting'), app: app, session: s);

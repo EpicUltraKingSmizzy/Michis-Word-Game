@@ -1,15 +1,16 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../logic/models.dart';
 import '../../logic/room_code.dart';
+import '../../platform/share.dart';
 import '../../state/app_state.dart';
 import '../../state/session.dart';
 import '../avatars.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/mascot.dart';
+import '../widgets/chat_panel.dart';
 import '../widgets/player_list.dart';
 import '../widgets/profile_editor.dart';
 
@@ -26,12 +27,9 @@ class HostScreen extends StatelessWidget {
 
   Future<void> _share(BuildContext context) async {
     final url = joinUrl(session.roomCode);
-    final box = context.findRenderObject() as RenderBox?;
-    await SharePlus.instance.share(ShareParams(
-      text: "Come play Michi's Word Game with me!\n$url",
-      subject: "Join my Michi's Word Game",
-      sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
-    ));
+    final shared = await shareOrCopy(context,
+        text: "Come play Michi's Word Game with me!\n$url", subject: "Join my Michi's Word Game");
+    if (!shared) app.say('Invite link copied! Paste it to your friends.');
   }
 
   @override
@@ -123,7 +121,12 @@ class HostScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          PlayerList(players: session.players, myId: session.myId, onEditMe: () => _edit(context)),
+          PlayerList(
+            players: session.players,
+            myId: session.myId,
+            presence: session.presence,
+            onEditMe: () => _edit(context),
+          ),
           const SizedBox(height: 14),
           if (session.players.length < 2)
             const Padding(
@@ -133,8 +136,19 @@ class HostScreen extends StatelessWidget {
           ChunkyButton(
             label: 'Start Game',
             icon: Icons.play_arrow_rounded,
-            onPressed: session.phase == SessionPhase.lobby ? session.startGame : null,
+            onPressed: session.canStart ? session.startGame : null,
           ),
+          if (session.startBlockedReason != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Waiting: ${session.startBlockedReason}',
+                textAlign: TextAlign.center,
+                style: uiText(15, weight: FontWeight.w600, color: MwgColors.gold),
+              ),
+            ),
+          const SizedBox(height: 18),
+          ChatPanel(session: session),
         ],
       ),
     );

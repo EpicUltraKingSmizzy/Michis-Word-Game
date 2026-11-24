@@ -5,6 +5,7 @@ import '../../state/session.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/mascot.dart';
+import '../widgets/chat_panel.dart';
 import '../widgets/player_list.dart';
 import '../widgets/profile_editor.dart';
 
@@ -50,8 +51,15 @@ class WaitingScreen extends StatelessWidget {
           const SizedBox(height: 14),
           SettingsSummary(settings: session.settings),
           const SizedBox(height: 14),
-          PlayerList(players: session.players, myId: session.myId, onEditMe: () => _edit(context)),
+          PlayerList(
+            players: session.players,
+            myId: session.myId,
+            presence: session.presence,
+            onEditMe: () => _edit(context),
+          ),
           const SizedBox(height: 18),
+          ChatPanel(session: session),
+          const SizedBox(height: 12),
           Center(
             child: Text('Get your fingers ready!',
                 style: uiText(16, weight: FontWeight.w500, color: Colors.white70)),

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleListener;
 
+import '../logic/challenge.dart';
 import '../logic/dictionary.dart';
 import '../logic/models.dart';
 import '../logic/room_code.dart';
@@ -47,6 +48,9 @@ class AppState extends ChangeNotifier {
   /// Room code from a join link, waiting for the dictionary to finish loading.
   String? pendingJoinCode;
 
+  /// Challenge link data waiting for the dictionary to finish loading.
+  String? pendingChallenge;
+
   /// Code to prefill on the join screen.
   String joinCodeDraft = '';
 
@@ -76,6 +80,11 @@ class AppState extends ChangeNotifier {
     if (code != null && ready) {
       pendingJoinCode = null;
       unawaited(joinGame(code));
+    }
+    final ch = pendingChallenge;
+    if (ch != null && ready) {
+      pendingChallenge = null;
+      startChallenge(ch);
     }
   }
 
@@ -112,6 +121,17 @@ class AppState extends ChangeNotifier {
 
   /// Called for app links and the web URL (…/join?code=ABCD).
   void handleLink(Uri uri) {
+    final challenge = challengeDataFromUri(uri);
+    if (challenge != null) {
+      if (session != null) {
+        say('Finish this game first, then open the challenge link again.');
+      } else if (!ready) {
+        pendingChallenge = challenge;
+      } else {
+        startChallenge(challenge);
+      }
+      return;
+    }
     final code = roomCodeFromUri(uri);
     if (code == null) return;
     if (session != null) {
@@ -193,6 +213,19 @@ class AppState extends ChangeNotifier {
       _joiningLink = null;
       notifyListeners();
     }
+  }
+
+  /// Opens a challenge link: the friend's exact board, played solo.
+  void startChallenge(String data) {
+    if (session != null || !ready) return;
+    final Challenge c;
+    try {
+      c = decodeChallenge(data, dictionary!);
+    } on FormatException {
+      say("That challenge link looks broken. Ask your friend to send it again!");
+      return;
+    }
+    _attach(SoloSession(dictionary: dictionary!, challenge: c, name: name, avatar: avatar));
   }
 
   /// Stops a join that is still waiting for the host.

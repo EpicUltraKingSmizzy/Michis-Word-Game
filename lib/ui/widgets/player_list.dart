@@ -1,14 +1,24 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../logic/models.dart';
+import '../../state/session.dart' show PlayerPresence;
 import '../avatars.dart';
 import '../theme.dart';
 import 'common.dart';
 
 /// Everyone in the room, with names and avatars.
 class PlayerList extends StatelessWidget {
-  const PlayerList({super.key, required this.players, required this.myId, this.onEditMe});
+  const PlayerList({
+    super.key,
+    required this.players,
+    required this.myId,
+    this.onEditMe,
+    this.presence = const {},
+  });
   final List<PlayerInfo> players;
+
+  /// Players who aren't simply ready (viewing results, reconnecting).
+  final Map<String, PlayerPresence> presence;
   final String myId;
   final VoidCallback? onEditMe;
 
@@ -32,10 +42,20 @@ class PlayerList extends StatelessWidget {
                     AvatarCircle(avatar: p.avatar, size: 40),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text(
-                        p.name,
-                        overflow: TextOverflow.ellipsis,
-                        style: uiText(19, weight: FontWeight.w600),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            p.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: uiText(19, weight: FontWeight.w600),
+                          ),
+                          if (presence[p.id] == PlayerPresence.viewingResults)
+                            Text('Still viewing results…',
+                                style: uiText(13, weight: FontWeight.w600, color: MwgColors.gold))
+                          else if (presence[p.id] == PlayerPresence.reconnecting)
+                            Text('Reconnecting…', style: uiText(13, weight: FontWeight.w600, color: MwgColors.pink)),
+                        ],
                       ),
                     ),
                     if (p.isHost) LabelPill('Host', color: MwgColors.gold, fontSize: 13),

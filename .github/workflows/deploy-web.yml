@@ -35,9 +35,9 @@ jobs:
         run: |
           cd build/web
           touch .nojekyll
-          # /join?code=ABCD: serve the app for the join path and any unknown path.
+          # /join?code=ABCD and /challenge?d=...: serve the app for those paths and any unknown path.
           cp index.html 404.html
-          mkdir -p join && cp index.html join/index.html
+          mkdir -p join challenge && cp index.html join/index.html && cp index.html challenge/index.html
           cp -r ../../web_hosting/.well-known .
           echo "Built from ${GITHUB_REPOSITORY}@${GITHUB_SHA}" > build-info.txt
 
