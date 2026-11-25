@@ -28,7 +28,10 @@ class PeerOptions {
     this.secure = true,
     this.pingInterval,
   }) {
-    token = util.randomToken();
+    // Michi's Word Game patch: keep a token the caller passes in. Upstream
+    // always replaced it with a random one, so a host could never re-claim
+    // its own room id from a stale server socket.
+    token ??= util.randomToken();
   }
 
   PeerOptions merge(PeerOptions options) => PeerOptions(

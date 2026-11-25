@@ -39,6 +39,9 @@ class Socket extends StreamEventEmitter {
 
     _socket = WebSocketChannel.connect(Uri.parse(wsUrl));
     _disconnected = false;
+    // Michi's Word Game patch: a failed connect also ends the stream (handled
+    // in onDone); don't let `ready` surface as an uncaught error.
+    _socket?.ready.catchError((Object _) {});
 
     _socket?.stream.listen((event) {
       dynamic data;
@@ -52,6 +55,9 @@ class Socket extends StreamEventEmitter {
       }
 
       emit<Map<String, dynamic>>(SocketEventType.Message.type, data);
+    }, onError: (Object e) {
+      // Michi's Word Game patch: errors end the stream; onDone handles it.
+      logger.log("Socket error: $e");
     }, onDone: () {
       if (_disconnected) {
         return;
@@ -59,9 +65,16 @@ class Socket extends StreamEventEmitter {
 
       logger.log("Socket closed.");
 
-      _cleanup();
-
+      // Michi's Word Game patch: tell the Peer BEFORE closing the event
+      // emitter. Upstream closed the emitter first, so this emit threw
+      // "Bad state: Cannot add new events after calling close", the Peer
+      // never heard about it and kept reporting `open == true`. A host whose
+      // server socket dropped (e.g. while switching apps to share the link)
+      // then stayed invisible to new players forever.
+      _disconnected = true;
+      _socket?.sink.close();
       emit<void>(SocketEventType.Disconnected.type, null);
+      close();
     });
 
     _sendQueuedMessages();
@@ -127,6 +140,9 @@ class Socket extends StreamEventEmitter {
 
     _socket?.sink.add(message);
   }
+
+  /// Michi's Word Game patch: lets callers check the server socket directly.
+  bool get isOpen => !_disconnected;
 
   bool _wsOpen() {
     return !_disconnected;

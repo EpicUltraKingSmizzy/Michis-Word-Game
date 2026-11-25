@@ -39,6 +39,7 @@ jobs:
           cp index.html 404.html
           mkdir -p join challenge && cp index.html join/index.html && cp index.html challenge/index.html
           cp -r ../../web_hosting/.well-known .
+          cp ../../web_hosting/ice.json .
           echo "Built from ${GITHUB_REPOSITORY}@${GITHUB_SHA}" > build-info.txt
 
       - name: Publish to MichisWordGame/MichisWordGame.github.io

@@ -7,7 +7,20 @@ import 'dart:convert';
 import 'link.dart';
 
 class FakeNetwork {
+  /// With [latency], every message is delivered asynchronously after the
+  /// returned delay (order per sender/receiver pair is kept, like a real data
+  /// channel). Without it, delivery is synchronous.
+  FakeNetwork({this.latency});
+  final Duration Function()? latency;
   final Map<String, FakeHostLink> hosts = {};
+  final Map<String, Future<void>> _lanes = {};
+
+  void deliver(String lane, void Function() f) {
+    final l = latency;
+    if (l == null) return f();
+    final prev = _lanes[lane] ?? Future<void>.value();
+    _lanes[lane] = prev.then((_) => Future<void>.delayed(l(), f));
+  }
 }
 
 class FakeHostLink implements HostLink {
@@ -31,19 +44,27 @@ class FakeHostLink implements HostLink {
 
   void _attach(String id, FakeClientLink c) {
     clients[id] = c;
-    _events.add(ClientConnected(id));
+    network.deliver('up:$id', () => _events.add(ClientConnected(id)));
   }
 
-  void fromClient(String id, Map<String, dynamic> m) =>
-      _events.add(ClientMessage(id, jsonDecode(jsonEncode(m)) as Map<String, dynamic>));
+  void fromClient(String id, Map<String, dynamic> m) {
+    final copy = jsonDecode(jsonEncode(m)) as Map<String, dynamic>;
+    network.deliver('up:$id', () {
+      if (clients.containsKey(id)) _events.add(ClientMessage(id, copy));
+    });
+  }
 
   void clientLeft(String id) {
-    if (clients.remove(id) != null) _events.add(ClientDisconnected(id));
+    if (clients.remove(id) != null) network.deliver('up:$id', () => _events.add(ClientDisconnected(id)));
   }
 
   @override
-  void send(String connId, Map<String, dynamic> message) =>
-      clients[connId]?._deliver(jsonDecode(jsonEncode(message)) as Map<String, dynamic>);
+  void send(String connId, Map<String, dynamic> message) {
+    final c = clients[connId];
+    if (c == null) return;
+    final copy = jsonDecode(jsonEncode(message)) as Map<String, dynamic>;
+    network.deliver('down:$connId', () => c._deliver(copy));
+  }
 
   @override
   void disconnect(String connId) => clients.remove(connId)?._drop();
@@ -73,6 +94,7 @@ class FakeClientLink implements ClientLink {
 
   @override
   Future<void> connect(String roomCode, {void Function()? onWaiting}) async {
+    if (network.latency != null) await Future<void>.delayed(network.latency!());
     final h = network.hosts[roomCode];
     if (h == null) throw const LinkException(LinkErrorKind.roomNotFound, 'no room');
     _host = h;

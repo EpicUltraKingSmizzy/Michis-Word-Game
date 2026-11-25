@@ -23,6 +23,10 @@ abstract class BaseConnection extends StreamEventEmitter {
   void handleMessage(ServerMessage message);
 
   void closeRequest() {
-    emit("close", null);
+    // Michi's Word Game patch: the emitter may already be closed (dispose
+    // ran first); don't throw "Cannot add new events after calling close".
+    try {
+      emit("close", null);
+    } catch (_) {}
   }
 }

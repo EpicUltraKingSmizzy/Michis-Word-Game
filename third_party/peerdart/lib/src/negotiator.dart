@@ -13,9 +13,33 @@ class Negotiator<T extends BaseConnection> {
   T connection;
   Negotiator(this.connection);
 
+  // Michi's Word Game patch: ICE candidates that arrive before the peer
+  // connection exists or before its remote description is set used to be
+  // dropped (or parked as "lost messages" that were never picked up). Under
+  // load, e.g. several players joining at once on a phone, the host could
+  // lose a joiner's candidates and the connection would never open. Queue
+  // them and add them once the remote description is in place.
+  final List<RTCIceCandidate> _pendingCandidates = [];
+  bool _remoteDescriptionSet = false;
+
+  Future<void> _flushCandidates() async {
+    final pending = [..._pendingCandidates];
+    _pendingCandidates.clear();
+    for (final c in pending) {
+      await handleCandidate(c);
+    }
+  }
+
   Future<void> startConnection(PeerConnectOption options) async {
     final peerConnection = await _startPeerConnection();
     connection.peerConnection = peerConnection;
+
+    // Michi's Word Game patch: pick up signaling messages that arrived while
+    // the peer connection was being created (see _pendingCandidates).
+    final early = connection.provider?.getMessages(connection.connectionId) ?? [];
+    for (final m in early) {
+      connection.handleMessage(m);
+    }
 
     if (connection.type == ConnectionType.Media && options.stream != null) {
       _addTracksToConnection(options.stream!, peerConnection);
@@ -48,6 +72,10 @@ class Negotiator<T extends BaseConnection> {
     try {
       await peerConnection?.setRemoteDescription(description);
       logger.log("Set remoteDescription:$type for:${connection.peer}");
+      if (peerConnection != null) {
+        _remoteDescriptionSet = true;
+        await _flushCandidates();
+      }
       if (type == "OFFER") {
         await _makeAnswer();
       }
@@ -334,8 +362,13 @@ class Negotiator<T extends BaseConnection> {
     final peerConnection = connection.peerConnection;
     final provider = connection.provider;
 
+    if (peerConnection == null || !_remoteDescriptionSet) {
+      _pendingCandidates.add(ice);
+      return;
+    }
+
     try {
-      await peerConnection?.addCandidate(ice);
+      await peerConnection.addCandidate(ice);
       logger.log("Added ICE candidate for:${connection.peer}");
     } catch (err) {
       provider?.emitError(PeerErrorType.WebRTC, err);

@@ -52,8 +52,10 @@ in the same grid of letters.
 - Phones find each other through the free public **PeerJS** server
   (`0.peerjs.com`) using the [`peerdart`](https://pub.dev/packages/peerdart)
   client. After that, traffic flows over **WebRTC data channels**. ICE uses
-  Google's public STUN server (`stun:stun.l.google.com:19302`) plus PeerJS's
-  free public TURN relay as a best-effort fallback.
+  free public STUN servers (Google and Cloudflare). A TURN relay is optional
+  and read at startup from `https://michiswordgame.github.io/ice.json` (see
+  "Relay (TURN) setup" below). PeerJS's old free relay
+  (`eu-0/us-0.turn.peerjs.com`) was shut down in 2025, so it's no longer used.
 - Room codes are 4 letters. The host registers the PeerJS id `mwg-<code>`.
 - Invite link / QR code: `https://michiswordgame.github.io/join?code=ABCD`.
   On a phone with the app installed, the link opens the app (App Links /
@@ -63,20 +65,58 @@ in the same grid of letters.
   foreground service ("Room ABCD is open" notification) so sharing the invite
   from another app doesn't cut the room off. iOS gives the app only about 30
   seconds in the background. If the host's connection to the matchmaking
-  server drops, it registers the same room id again. Joining players keep
-  knocking for up to 60 seconds ("Waiting for the host…"), so a host who pops
-  back into the app still gets them.
+  server drops, it registers the same room id again (with the same secret
+  token, so the server hands the id straight back), and it re-registers
+  whenever it comes back from the background. Joining players keep knocking
+  for up to 2 minutes ("Waiting for the host…"), so a host who pops back into
+  the app still gets them.
 - **Drops:** a player whose connection drops keeps their seat for 30 seconds
   and rejoins automatically. Leaving with the button removes them right away.
-- `third_party/peerdart` is peerdart 0.5.6 with one patch: connections are no
-  longer closed on a temporary ICE "disconnected" state.
-- Known limits: STUN-only connections can fail on some mobile-data or strict
-  school/work networks. The public PeerJS server has no uptime guarantee. When
-  a connection fails, Michi explains it in a speech bubble.
+- `third_party/peerdart` is peerdart 0.5.6 with a few fixes, listed in
+  `third_party/peerdart/PATCHES.md`. The important one (0.2.1): when the
+  host's server socket dropped, upstream peerdart crashed while reporting it,
+  so the room silently stopped accepting new players while everyone already
+  in kept playing ("only 2 of us could get in").
+- Known limits: without a TURN relay, two phones that can't reach each other
+  directly (mobile data behind a carrier NAT, Wi-Fi that isolates devices) can't
+  connect. The joiner then gets a message saying so. The public PeerJS server
+  has no uptime guarantee.
 - **Testing on one computer:** open the web build with `?transport=local` in
   two tabs of the same browser (e.g. `/?transport=local` to host and
   `/join?code=ABCD&transport=local` to join). This skips WebRTC and uses a
   `BroadcastChannel`. Add `?debug=1` to log PeerJS traffic in the console.
+- **Real WebRTC test with many players:** `tool/e2e/multijoin.js` (Playwright,
+  WebKit + Firefox) opens a host and N joiners in separate browser profiles,
+  joins them at once or one by one, can make the host "leave to share the
+  link" for a while (`HOST_AWAY=40 AWAY_MODE=kill|freeze`), and plays a
+  round (`PLAY=1`). See `tool/e2e/README.md`.
+
+### Relay (TURN) setup
+
+Most phones on the same Wi-Fi, or Wi-Fi + mobile data, connect directly. Some
+pairs can't (two phones on mobile data, guest/isolated Wi-Fi). For those, a
+TURN relay is needed. Free relays without an account no longer exist, so:
+
+1. Create a free account at Metered (Open Relay, 20 GB/month; this game uses
+   a tiny fraction of that) or use Cloudflare Realtime TURN, and get the TURN
+   credentials or the "credentials URL" (an https link with your API key that
+   returns `iceServers`).
+2. Put them in `ice.json` at the root of the GitHub Pages site
+   (`MichisWordGame/MichisWordGame.github.io`), for example:
+
+   ```json
+   {"credentialsUrl": "https://YOUR-APP.metered.live/api/v1/turn/credentials?apiKey=YOUR_KEY"}
+   ```
+   or
+   ```json
+   {"iceServers": [{"urls": ["turn:relay.example.com:3478", "turns:relay.example.com:443?transport=tcp"], "username": "...", "credential": "..."}]}
+   ```
+3. No rebuild needed: the web app and the Android app read it at startup.
+   Open `https://michiswordgame.github.io/?ice=relay&debug=1` on two phones to
+   check that relay-only connections work.
+
+Anything in `ice.json` is public. Use a key that can only fetch TURN
+credentials and has a usage cap.
 
 ## Dictionary
 

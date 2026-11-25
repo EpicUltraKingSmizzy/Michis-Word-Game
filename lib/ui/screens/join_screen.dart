@@ -121,7 +121,7 @@ class _JoinScreenState extends State<JoinScreen> {
             const SizedBox(height: 24),
             MascotBubble(
               text: app.joinWaiting
-                  ? "Waiting for the host… They might be in another app. I'll keep knocking on room ${app.joinCodeDraft} for a minute!"
+                  ? "Waiting for the host… If they switched apps to send the invite, ask them to come back to the game. I'll keep knocking on room ${app.joinCodeDraft} for 2 minutes!"
                   : 'Knocking on room ${app.joinCodeDraft}…',
             ),
             if (app.joinWaiting) ...[

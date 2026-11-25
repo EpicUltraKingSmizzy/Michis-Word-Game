@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'net/local_link.dart';
+import 'net/ice_servers.dart';
 import 'net/peer_link.dart' show verbosePeerLogs;
 import 'state/app_state.dart';
 import 'state/session.dart';
@@ -30,6 +31,7 @@ void main() {
       ? AppState(hostLinkFactory: createLocalHostLink, clientLinkFactory: createLocalClientLink)
       : AppState();
   app.watchLifecycle();
+  unawaited(loadIceServers());
   _listenForJoinLinks(app);
   unawaited(app.init());
   runApp(MichisWordGame(app: app));
@@ -40,6 +42,7 @@ void main() {
 void _listenForJoinLinks(AppState app) {
   if (kIsWeb) {
     verbosePeerLogs = Uri.base.queryParameters['debug'] == '1';
+    forceRelay = Uri.base.queryParameters['ice'] == 'relay';
     app.handleLink(Uri.base);
     return;
   }

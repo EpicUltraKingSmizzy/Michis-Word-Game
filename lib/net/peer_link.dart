@@ -8,36 +8,23 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart' show RTCIceConnectionState;
 import 'package:peerdart/peerdart.dart';
 
 import '../logic/room_code.dart';
+import 'ice_servers.dart';
 import 'link.dart';
-
-/// ICE servers: Google's public STUN, plus the PeerJS project's free public
-/// TURN relay as a best-effort fallback for strict networks.
-const Map<String, dynamic> iceConfig = {
-  'iceServers': [
-    {'urls': 'stun:stun.l.google.com:19302'},
-    {
-      'urls': [
-        'turn:eu-0.turn.peerjs.com:3478',
-        'turn:us-0.turn.peerjs.com:3478',
-      ],
-      'username': 'peerjs',
-      'credential': 'peerjsp',
-    },
-  ],
-  'sdpSemantics': 'unified-plan',
-};
 
 /// Set to true (e.g. with `?debug=1` on the web) to log PeerJS traffic.
 bool verbosePeerLogs = false;
 
-/// How long a player keeps trying to reach a host before giving up.
-const Duration joinPatience = Duration(seconds: 60);
+/// How long a player keeps trying to reach a host before giving up. Long
+/// enough for a host who switched apps to send the invite to come back.
+const Duration joinPatience = Duration(minutes: 2);
 
-PeerOptions _options() => PeerOptions(
-      config: iceConfig,
+PeerOptions _options({String? token}) => PeerOptions(
+      config: currentIceConfig(),
+      token: token,
       debug: verbosePeerLogs ? LogLevel.All : (kDebugMode ? LogLevel.Errors : LogLevel.Disabled),
     );
 
@@ -58,6 +45,11 @@ class PeerHostLink implements HostLink {
   bool _closed = false;
   String? _code;
   bool _reregistering = false;
+
+  /// Sent with every registration of this room. The PeerJS server lets a
+  /// client with the same id AND token take over a stale registration, so
+  /// coming back from the background reclaims the room id at once.
+  final String _token = _randomId();
   Timer? _watchdog;
 
   Peer? get _peer => _peers.isEmpty ? null : _peers.last;
@@ -72,6 +64,7 @@ class PeerHostLink implements HostLink {
   @override
   Future<void> open(String roomCode) async {
     _code = roomCode;
+    await iceServersReady();
     try {
       await _register().timeout(const Duration(seconds: 15));
     } on TimeoutException {
@@ -89,7 +82,7 @@ class PeerHostLink implements HostLink {
 
   /// Creates a Peer for the room id and waits for the server to accept it.
   Future<void> _register() {
-    final peer = Peer(id: hostPeerId(_code!), options: _options());
+    final peer = Peer(id: hostPeerId(_code!), options: _options(token: _token));
     _peers.add(peer);
     final ready = Completer<void>();
     _subs.add(peer.on<dynamic>('open').listen((_) {
@@ -118,9 +111,7 @@ class PeerHostLink implements HostLink {
   Future<void> _ensureRegistered({bool force = false}) async {
     if (_closed || _reregistering || _code == null) return;
     final current = _peer;
-    if (!force && current != null && (current.open || (!current.disconnected && !current.destroyed))) {
-      return;
-    }
+    if (!force && current != null && _alive(current)) return;
     _reregistering = true;
     try {
       // Close the old server socket (its player connections stay open).
@@ -148,11 +139,27 @@ class PeerHostLink implements HostLink {
     }
   }
 
+  /// Whether [p] still has (or is still opening) its server connection.
+  /// Checks the socket itself: before the 0.2.1 peerdart patch a dropped
+  /// socket left `open == true` forever, which silently locked new players
+  /// out of the room.
+  static bool _alive(Peer p) {
+    if (p.destroyed || p.disconnected) return false;
+    try {
+      return p.socket.isOpen;
+    } catch (_) {
+      return p.open;
+    }
+  }
+
   /// Call when the app comes back to the foreground. After a long time away
   /// the server socket may look alive but be dead, so register again.
   void appResumed(Duration away) {
     if (_closed) return;
-    unawaited(_ensureRegistered(force: away > const Duration(seconds: 20) && !_reregistering));
+    // Phones often kill or freeze a background tab's server socket without
+    // telling us, so register again after any real absence. Thanks to the
+    // fixed token this is quick and doesn't disturb connected players.
+    unawaited(_ensureRegistered(force: away > const Duration(seconds: 3) && !_reregistering));
   }
 
   void _accept(DataConnection conn) {
@@ -231,6 +238,7 @@ class PeerClientLink implements ClientLink {
 
   @override
   Future<void> connect(String roomCode, {void Function()? onWaiting}) async {
+    await iceServersReady();
     final peer = Peer(id: '${peerIdPrefix}p-${_randomId()}', options: _options());
     _peer = peer;
     final ready = Completer<void>();
@@ -242,6 +250,9 @@ class PeerClientLink implements ClientLink {
     var attempt = 0;
     var waitingShown = false;
     LinkException? lastError;
+    // Set when the host answered but no network path between the two phones
+    // worked (ICE stuck in "checking" or "failed").
+    var noPath = false;
 
     void fail(LinkException e) {
       if (!ready.isCompleted) ready.completeError(e);
@@ -270,7 +281,12 @@ class PeerClientLink implements ClientLink {
       final opened = Completer<bool>();
       final conn = peer.connect(hostPeerId(roomCode),
           options: PeerConnectOption(reliable: true, serialization: SerializationType.JSON));
+      RTCIceConnectionState? ice;
       final subs = <StreamSubscription<dynamic>>[
+        conn.on<RTCIceConnectionState?>('iceStateChanged').listen((st) {
+          ice = st;
+          if (verbosePeerLogs) debugPrint('[peer] join attempt $attempt ICE: $st');
+        }),
         conn.on<dynamic>('open').listen((_) {
           if (!opened.isCompleted) opened.complete(true);
         }),
@@ -285,11 +301,29 @@ class PeerClientLink implements ClientLink {
           }
         }),
       ];
-      final ok = await Future.any([
+      final gaveUp = ready.future.then((_) => false, onError: (_) => false);
+      var ok = await Future.any([
         opened.future,
         Future<bool>.delayed(Duration(seconds: attempt == 1 ? 10 : 7), () => false),
-        ready.future.then((_) => false, onError: (_) => false),
+        gaveUp,
       ]);
+      // The host answered and the phones are still trying network paths
+      // (relays can take a few seconds): give it more time.
+      if (!ok && !ready.isCompleted &&
+          (ice == RTCIceConnectionState.RTCIceConnectionStateChecking ||
+              ice == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+              ice == RTCIceConnectionState.RTCIceConnectionStateCompleted)) {
+        ok = await Future.any([
+          opened.future,
+          Future<bool>.delayed(const Duration(seconds: 10), () => false),
+          gaveUp,
+        ]);
+      }
+      if (!ok &&
+          (ice == RTCIceConnectionState.RTCIceConnectionStateChecking ||
+              ice == RTCIceConnectionState.RTCIceConnectionStateFailed)) {
+        noPath = true;
+      }
       if (ok && !ready.isCompleted) {
         _conn = conn;
         _subs.addAll(subs);
@@ -319,7 +353,10 @@ class PeerClientLink implements ClientLink {
         }
         if (ready.isCompleted || _closing) return;
         if (DateTime.now().isAfter(deadline)) {
-          fail(lastError ??
+          fail(noPath
+              ? const LinkException(LinkErrorKind.network,
+                  "I found the game, but your phone and the host's phone couldn't connect to each other. This usually happens on mobile data or on Wi-Fi that keeps devices apart. Try putting both phones on the same Wi-Fi, or switch the host to mobile data, and join again!")
+              : lastError ??
               LinkException(LinkErrorKind.timeout,
                   "I couldn't reach the game $roomCode. Make sure the host has the game open. Some networks (like mobile data or school Wi-Fi) block direct connections, so trying another network can help too!"));
           return;
