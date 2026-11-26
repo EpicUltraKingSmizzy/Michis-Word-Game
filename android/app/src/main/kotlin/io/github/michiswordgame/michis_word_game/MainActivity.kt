@@ -25,9 +25,24 @@ class MainActivity : FlutterActivity() {
                     stopService(Intent(this, HostKeepAliveService::class.java))
                     result.success(true)
                 }
+                "setGestureExclusion" -> {
+                    val raw = call.argument<List<List<Int>>>("rects") ?: emptyList()
+                    result.success(setGestureExclusion(raw))
+                }
                 else -> result.notImplemented()
             }
         }
+    }
+
+    /// During a round: edge swipes that start inside these rects (the letter
+    /// grid's band) go to the game instead of the system back gesture.
+    /// Android 10+ only, and the system honors at most 200dp of height per
+    /// side edge. The bottom (home) gesture can't be excluded by any app.
+    private fun setGestureExclusion(raw: List<List<Int>>): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val rects = raw.filter { it.size == 4 }.map { android.graphics.Rect(it[0], it[1], it[2], it[3]) }
+        window.decorView.systemGestureExclusionRects = rects
+        return true
     }
 
     /// Opens the camera app in photo mode. Most Android camera apps (Google

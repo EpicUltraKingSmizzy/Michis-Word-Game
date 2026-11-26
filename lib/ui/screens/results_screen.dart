@@ -39,7 +39,24 @@ class _ResultsScreenState extends State<ResultsScreen> {
   final Map<String, int> _shown = {};
   WordEntry? _entry;
   bool _awarded = false;
-  bool _skip = false;
+
+  /// The screen is gone; stop everything.
+  bool _disposed = false;
+
+  /// "Skip" was pressed: jump past the scoring animation only. The pages
+  /// after it (highlights, longest word, winner) are still tapped through.
+  bool _skipScoring = false;
+
+  /// Challenge friends whose link only carried a score (no words): their
+  /// score can't be replayed word by word, so it shows "???" until scoring
+  /// is over.
+  late final Set<String> _scoreOnly = {
+    if (widget.session is SoloSession)
+      for (final p in r.players)
+        if (p.player.id != myId && p.words.isEmpty && p.score > 0) p.player.id,
+  };
+  bool _scoringDone = false;
+  final _skipSignal = Completer<void>();
   PersonalRecord? _record;
   final _confetti = ConfettiController(duration: const Duration(seconds: 4));
 
@@ -64,15 +81,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
   @override
   void dispose() {
-    _skip = true;
+    _disposed = true;
+    if (!_skipSignal.isCompleted) _skipSignal.complete();
     _confetti.dispose();
     super.dispose();
   }
 
+  /// Pauses the scoring animation. False if it should stop (skipped or the
+  /// screen went away).
   Future<bool> _wait(int ms) async {
-    if (_skip) return false;
-    await Future<void>.delayed(Duration(milliseconds: ms));
-    return mounted && !_skip;
+    if (_skipScoring || _disposed) return false;
+    await Future.any([Future<void>.delayed(Duration(milliseconds: ms)), _skipSignal.future]);
+    return mounted && !_skipScoring && !_disposed;
   }
 
   Completer<void>? _tapWait;
@@ -80,13 +100,20 @@ class _ResultsScreenState extends State<ResultsScreen> {
   /// Waits for the player to tap before moving on (so the highlights, the
   /// longest word, and so on don't fly past).
   Future<bool> _waitTap() async {
-    if (_skip || !mounted) return false;
+    if (_disposed || !mounted) return false;
     final c = _tapWait = Completer<void>();
     setState(() {});
     await c.future;
     if (identical(_tapWait, c)) _tapWait = null;
     if (mounted) setState(() {});
-    return mounted && !_skip;
+    return mounted && !_disposed;
+  }
+
+  /// Skip button: ends the scoring animation and shows the final scores.
+  void _skipToEndOfScoring() {
+    if (_scoringDone) return;
+    setState(() => _skipScoring = true);
+    if (!_skipSignal.isCompleted) _skipSignal.complete();
   }
 
   void _advance() {
@@ -98,16 +125,43 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   Future<void> _run() async {
-    if (!await _wait(2600)) return _finish();
+    await _scoring();
+    if (_disposed || !mounted) return;
+    final skipped = _skipScoring;
+    setState(() {
+      _scoringDone = true;
+      _entry = null;
+      for (final p in r.players) {
+        _shown[p.player.id] = p.score;
+      }
+      _stage = _Stage.replay;
+    });
+    // From here on, players tap through at their own pace. After a skip the
+    // final scores are on screen already, so go straight on.
+    if (!skipped && !await _waitTap()) return;
+    if (!mounted) return;
+    setState(() => _stage = _Stage.highlights);
+    if (!await _waitTap()) return;
+    if (r.longest != null) {
+      setState(() => _stage = _Stage.longest);
+      if (!await _waitTap()) return;
+    }
+    _finish();
+  }
+
+  /// Time's up + word counts, then the word-by-word replay. Returns early
+  /// when skipped.
+  Future<void> _scoring() async {
+    if (!await _wait(2600)) return;
     setState(() => _stage = _Stage.replay);
-    if (!await _wait(400)) return _finish();
+    if (!await _wait(400)) return;
     for (final e in r.replay) {
       setState(() {
         _entry = e;
         _awarded = false;
       });
       final hold = replayStepDuration(e).inMilliseconds - 400;
-      if (!await _wait(hold)) return _finish();
+      if (!await _wait(hold)) return;
       setState(() {
         _awarded = true;
         for (final f in e.finders) {
@@ -115,18 +169,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
         }
       });
       if (e.finders.contains(myId)) HapticFeedback.mediumImpact();
-      if (!await _wait(400)) return _finish();
+      if (!await _wait(400)) return;
     }
-    if (r.replay.isEmpty && !await _wait(1500)) return _finish();
-    // From here on, players tap through at their own pace.
-    if (!await _waitTap()) return _finish();
-    setState(() => _stage = _Stage.highlights);
-    if (!await _waitTap()) return _finish();
-    if (r.longest != null) {
-      setState(() => _stage = _Stage.longest);
-      if (!await _waitTap()) return _finish();
-    }
-    _finish();
+    if (r.replay.isEmpty) await _wait(1500);
   }
 
   void _finish() {
@@ -168,12 +213,11 @@ class _ResultsScreenState extends State<ResultsScreen> {
                       child: const Icon(Icons.close_rounded),
                     ),
                     const Spacer(),
-                    if (_stage != _Stage.winner)
+                    if (!_scoringDone)
                       PillButton(
-                        onTap: () {
-                          _skip = true;
-                          _finish();
-                        },
+                        key: const ValueKey('skip-scoring'),
+                        tooltip: 'Skip the scoring',
+                        onTap: _skipToEndOfScoring,
                         child: const Row(mainAxisSize: MainAxisSize.min, children: [
                           Text('Skip'),
                           Icon(Icons.fast_forward_rounded),
@@ -188,7 +232,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   onTap: _tapWait == null ? null : _advance,
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 350),
-                    child: KeyedSubtree(key: ValueKey(_stage), child: body),
+                    child: KeyedSubtree(key: ValueKey('stage-${_stage.name}'), child: body),
                   ),
                 ),
               ),
@@ -234,7 +278,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
               right: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text('${p.wordCount}', style: uiText(30, weight: FontWeight.w700)),
+                  Text(_scoreOnly.contains(p.player.id) ? '?' : '${p.wordCount}',
+                      style: uiText(30, weight: FontWeight.w700)),
                   Text(p.wordCount == 1 ? 'word' : 'words', style: uiText(14, color: Colors.white70)),
                 ],
               ),
@@ -266,7 +311,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
                       isMe: p.player.id == myId,
                       crown: p.player.id == leader,
                       flash: _awarded && e != null && e.finders.contains(p.player.id),
-                      right: _ScoreBadge(score: _shown[p.player.id] ?? 0),
+                      right: _ScoreBadge(
+                        score: _shown[p.player.id] ?? 0,
+                        hidden: !_scoringDone && _scoreOnly.contains(p.player.id),
+                      ),
                     ),
                   ),
               ],
@@ -555,8 +603,11 @@ class _PlayerBanner extends StatelessWidget {
 }
 
 class _ScoreBadge extends StatelessWidget {
-  const _ScoreBadge({required this.score});
+  const _ScoreBadge({required this.score, this.hidden = false});
   final int score;
+
+  /// Shows "???" instead of the number.
+  final bool hidden;
 
   @override
   Widget build(BuildContext context) {
@@ -564,14 +615,14 @@ class _ScoreBadge extends StatelessWidget {
       duration: const Duration(milliseconds: 250),
       transitionBuilder: (c, a) => ScaleTransition(scale: Tween(begin: 1.6, end: 1.0).animate(a), child: c),
       child: Container(
-        key: ValueKey(score),
+        key: ValueKey(hidden ? -1 : score),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
           color: MwgColors.gold,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: MwgColors.tile, width: 2.5),
         ),
-        child: Text('$score', style: uiText(20, weight: FontWeight.w700, color: MwgColors.tile)),
+        child: Text(hidden ? '???' : '$score', style: uiText(20, weight: FontWeight.w700, color: MwgColors.tile)),
       ),
     );
   }

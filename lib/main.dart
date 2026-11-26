@@ -10,6 +10,7 @@ import 'net/ice_servers.dart';
 import 'net/peer_link.dart' show verbosePeerLogs;
 import 'state/app_state.dart';
 import 'state/session.dart';
+import 'ui/widgets/round_guard.dart';
 import 'ui/screens/challenge_screen.dart';
 import 'ui/screens/countdown_screen.dart';
 import 'ui/screens/host_screen.dart';
@@ -70,16 +71,24 @@ class MichisWordGame extends StatelessWidget {
           listenable: app,
           builder: (context, _) {
             final s = app.session;
-            if (s == null) return _switch(_noSession());
+            if (s == null) return RoundGuard(active: false, app: app, child: _switch(_noSession()));
             return ListenableBuilder(
               listenable: s,
-              builder: (context, _) => _switch(_inSession(s)),
+              builder: (context, _) => RoundGuard(
+                active: _inRound(s.phase),
+                app: app,
+                session: s,
+                child: _switch(_inSession(s)),
+              ),
             );
           },
         ),
       ),
     );
   }
+
+  static bool _inRound(SessionPhase p) =>
+      p == SessionPhase.countdown || p == SessionPhase.playing || p == SessionPhase.waitingForResults;
 
   Widget _switch(Widget child) => AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),

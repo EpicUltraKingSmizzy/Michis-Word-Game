@@ -243,7 +243,9 @@ const touchDrag = async (page, pts) => {
   // Host skips to the end and goes back to the room while P1/P2 are on results.
   await host.bringToFront();
   try { await clickText(host, /Skip/); } catch (_) {}
-  await sleep(1200);
+  await sleep(1500);
+  check('host: Skip lands on highlights, not the winner', /Tap to continue/.test(await allText(host)) && !/Back to the room/.test(await allText(host)));
+  for (let i = 0; i < 4 && !/Back to the room/.test(await allText(host)); i++) { try { await clickText(host, /Tap to continue/); } catch (_) {} await sleep(900); }
   await clickText(host, /Back to the room/);
   await sleep(1500);
   await scrollTo(host, /Start Game/);
@@ -273,7 +275,8 @@ const touchDrag = async (page, pts) => {
   check('host still blocked by P2', /Waiting: .*still viewing results/.test(await allText(host)));
   await p2.bringToFront();
   try { await clickText(p2, /Skip/); } catch (_) {}
-  await sleep(1000);
+  await sleep(1500);
+  for (let i = 0; i < 4 && !/Back to the room/.test(await allText(p2)); i++) { try { await clickText(p2, /Tap to continue/); } catch (_) {} await sleep(900); }
   await clickText(p2, /Back to the room/);
   await sleep(1200);
   await scrollTo(host, /Start Game/);
@@ -296,17 +299,37 @@ const touchDrag = async (page, pts) => {
     await sleep(4000); await semantics(friend);
     check('challenge screen', await waitFor(friend, /challenged you/, 15));
     await shot(friend, 'challenge_intro');
+    const introT = await allText(friend);
+    check('challenge intro hides the score as ???', /\?\?\?/.test(introT) && !/\d+ words?/.test(introT), '');
     await scrollTo(friend, /^Play/);
     await clickText(friend, /^Play/);
     await sleep(4500);
     const fl = await friend.evaluate(() => Array.from(document.querySelectorAll('flt-semantics')).filter(e => !e.querySelector('flt-semantics')).map(e => (e.getAttribute('aria-label') || e.textContent || '').trim()));
     const ftiles = fl.filter(t => /^([A-Z]|Qu)$/.test(t));
     check('challenge board matches original', ftiles.join('') === tiles.join(''), ftiles.join(''));
+    // Browser back mid-round asks instead of leaving the page.
+    const urlBefore = friend.url();
+    await friend.goBack({ timeout: 3000 }).catch(() => {});
+    await sleep(1200); await semantics(friend);
+    check('browser back during a round shows the quit dialog', await waitFor(friend, /Quit this game\?/, 5));
+    check('browser back keeps the page', friend.url().startsWith(BASE), friend.url() + ' (was ' + urlBefore + ')');
+    await shot(friend, 'back_quit_dialog');
+    await clickText(friend, /Keep playing/);
+    await sleep(800);
+    check('Keep playing returns to the round', !/Quit this game/.test(await allText(friend)) && /Quit/.test(await allText(friend)));
     check('challenge results', await waitFor(friend, /Time's up/i, 75));
+    await sleep(2500);
+    const replayT = await allText(friend);
     await clickText(friend, /Skip/);
     await sleep(1500);
+    check('challenge Skip lands on highlights', /Tap to continue/.test(await allText(friend)));
     const ft = await allText(friend);
-    check('challenge results include original players', (ft.match(/Player|Michi|\d+ words?/g) || []).length >= 3, '');
+    for (let i = 0; i < 4 && !/Challenge a friend|Play again|Back home|Done/.test(await allText(friend)); i++) { try { await clickText(friend, /Tap to continue/); } catch (_) {} await sleep(900); }
+    const winT = await allText(friend);
+    await shot(friend, 'challenge_winner');
+    const rows = (winT.match(/\d+ words?/g) || []).length;
+    check('challenge winner page lists the challengers and the friend', rows >= 4, rows + ' rows');
+    check('real challenger scores shown after scoring', !/\?\?\?/.test(winT));
     await shot(friend, 'challenge_results');
   }
 

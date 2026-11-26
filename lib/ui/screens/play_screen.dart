@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../logic/models.dart';
 import '../../logic/path_validation.dart';
 import '../../state/app_state.dart';
+import '../../platform/round_guard.dart' show setGestureExclusion;
 import '../../state/session.dart';
 import '../avatars.dart';
 import '../theme.dart';
@@ -23,6 +24,23 @@ class PlayScreen extends StatefulWidget {
 }
 
 class _PlayScreenState extends State<PlayScreen> {
+  final _gridKey = GlobalKey();
+
+  /// Android: let edge swipes that start beside the grid drag letters
+  /// instead of triggering "back". The band spans the full screen width at
+  /// the grid's height (Android honors up to 200dp of it per side).
+  void _reportGridArea() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final box = _gridKey.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.hasSize) return;
+      final top = box.localToGlobal(Offset.zero).dy;
+      final dpr = MediaQuery.devicePixelRatioOf(context);
+      final width = MediaQuery.sizeOf(context).width;
+      setGestureExclusion([Rect.fromLTRB(0, top * dpr, width * dpr, (top + box.size.height) * dpr)]);
+    });
+  }
+
   String _current = '';
   String _lastWord = '';
   SubmissionResult? _feedback;
@@ -90,6 +108,7 @@ class _PlayScreenState extends State<PlayScreen> {
   Widget build(BuildContext context) {
     final s = widget.session;
     final board = s.board!;
+    _reportGridArea();
     final playing = s.phase == SessionPhase.playing;
     final timesUp = s.phase == SessionPhase.waitingForResults;
     final points = s.foundWords.fold<int>(0, (sum, w) => sum + wordPoints(w));
@@ -112,12 +131,7 @@ class _PlayScreenState extends State<PlayScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  PillButton(
-                    tooltip: 'Leave game',
-                    onTap: () => _confirmLeave(context),
-                    child: const Icon(Icons.close_rounded),
-                  ),
-                  const SizedBox(width: 10),
+                  // Quitting: the "Quit" button in the corner (RoundGuard).
                   PillButton(
                     padding: const EdgeInsets.all(4),
                     child: AvatarCircle(avatar: widget.app.avatar, size: 32, ring: false),
@@ -171,7 +185,7 @@ class _PlayScreenState extends State<PlayScreen> {
                 child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 14),
                 child: LetterGrid(
-                  key: ValueKey(board),
+                  key: _gridKey,
                   board: board,
                   enabled: playing,
                   onSubmit: _submit,
@@ -213,24 +227,6 @@ class _PlayScreenState extends State<PlayScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _confirmLeave(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1B2A6B),
-        title: Text('Leave the game?', style: uiText(22, weight: FontWeight.w700)),
-        content: Text(
-            widget.session.isHost ? "You're the host, so this ends the game for everyone." : "You'll leave this room.",
-            style: uiText(16, weight: FontWeight.w500)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep playing')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Leave')),
-        ],
-      ),
-    );
-    if (ok == true) await widget.app.leaveSession();
   }
 }
 

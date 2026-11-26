@@ -27,7 +27,9 @@ in the same grid of letters.
   that come highlights (personal best, most words, longest word, photo
   finish, ...), the longest word on the board, and a confetti winner. During
   the replay each word is spelled out on the grid, tile by tile. After the
-  last word, players tap through the rest at their own pace. Each player
+  last word, players tap through the rest at their own pace. **Skip** only
+  skips the counting/replay; the highlights, longest word, and winner pages
+  are still tapped through. Each player
   heads back to the room when they're done; the host's Start button waits
   until everyone connected is back ("still viewing results" in the list).
 - **Challenge a friend:** after a round, share a link like
@@ -36,8 +38,27 @@ in the same grid of letters.
   words (as a bitset over the board's sorted word list), deflated and
   base64url-encoded: about 140-200 characters for a 4x4, up to ~530 for a 6x6
   with 4 players. No server or link shortener is involved. The friend plays the
-  same board solo and sees everyone's results together. It's one-way: the
-  original players don't see the friend's score.
+  same board solo and sees everyone's results together. The challengers'
+  scores (and word counts) show as **???** before and during the friend's
+  round, and only count up during the scoring, as if they had played
+  together. It's one-way: the original players don't see the friend's score.
+- **Quitting a round:** a **Quit** button (top left) during the countdown and
+  the round asks "Quit this game?" first. The host quitting ends the game for
+  everyone; a player leaves the room and the others keep playing; a
+  challenge goes back to the start.
+- **Stray gestures during a round** (`lib/platform/round_guard*.dart`):
+  - *Web:* touches starting within 28px of the left/right edge are cancelled
+    (stops the iOS Safari edge-swipe back on most versions), overscroll and
+    pull-to-refresh are off, an extra history entry turns back
+    (button or gesture) into the quit dialog, and closing or reloading the
+    tab asks first. A web page can't block the phone's own system gestures
+    (Android's back/home gestures, the iOS home bar); back still lands on the
+    quit dialog, but going home or switching apps can't be stopped.
+  - *Android app:* the round is "immersive sticky" (the first swipe from the
+    bottom or top only shows the system bars), the grid is excluded from the
+    side back gesture (Android caps this at 200dp of height per edge), and
+    back opens the quit dialog. Android never lets apps block the bottom
+    home gesture, only delay it like this.
 - **Chat:** the room has a chat at the bottom of the host and waiting screens:
   photos (shrunk to 800px JPEG), replies, and emoji reactions (long-press a
   message). The host relays everything; new players get the last 50 messages.
@@ -142,7 +163,8 @@ lib/logic/   pure game logic (board, dice, trie, solver, path validation,
              scoring, replay order, highlights, room codes): unit tested
 lib/net/     transport interfaces, PeerJS link, local (tab) link, fake link,
              message chunking
-lib/platform/ native bridge (camera app, background hosting), sharing
+lib/platform/ native bridge (camera app, background hosting), sharing,
+             round guard (gesture protection during a round)
 lib/state/   app state, host/player sessions, profile + personal bests
 lib/ui/      theme, widgets, screens
 test/        unit tests, plus a full host + 2 players session over a fake link

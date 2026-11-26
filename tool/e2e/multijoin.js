@@ -1,5 +1,6 @@
 // Real PeerJS/WebRTC multi-join check with Playwright.
 // ENGINES=firefox,webkit (host first, then joiners cycle) N=4 MODE=simul|stagger PLAY=1 BASE=...
+// QUIT=1 (with PLAY): P1 tries browser back mid-round (must get the quit dialog), the last joiner quits with the Quit button.
 const pw = require('playwright');
 const BASE = process.env.BASE || 'https://michiswordgame.github.io';
 const N = +(process.env.N || 4);
@@ -7,6 +8,7 @@ const MODE = process.env.MODE || 'simul';
 const PLAY = process.env.PLAY === '1';
 const Q = process.env.Q || 'debug=1';
 const ENG = (process.env.ENGINES || 'firefox').split(',');
+const QUIT = process.env.QUIT === '1';
 const VERBOSE = process.env.VERBOSE === '1';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const logs = {};
@@ -17,6 +19,10 @@ async function texts(page) { return page.evaluate(() => Array.from(document.quer
 const allText = async p => (await texts(p)).join(' \n ');
 async function clickText(page, re) {
   const ok = await page.evaluate((src) => { const re = new RegExp(src); const el = Array.from(document.querySelectorAll('flt-semantics')).find(e => re.test((e.getAttribute('aria-label') || e.textContent || '').trim()) && (e.getAttribute('role') === 'button' || e.getAttribute('flt-tappable') !== null)); if (!el) return false; el.click(); return true; }, re.source);
+  if (!ok) throw new Error('No button ' + re);
+}
+async function clickLast(page, re) {
+  const ok = await page.evaluate((src) => { const re = new RegExp(src); const els = Array.from(document.querySelectorAll('flt-semantics')).filter(e => re.test((e.getAttribute('aria-label') || e.textContent || '').trim()) && (e.getAttribute('role') === 'button' || e.getAttribute('flt-tappable') !== null)); const el = els[els.length - 1]; if (!el) return false; el.click(); return true; }, re.source);
   if (!ok) throw new Error('No button ' + re);
 }
 async function rectOf(page, re) {
@@ -114,9 +120,30 @@ async function waitFor(page, re, secs = 30) { for (let i = 0; i < secs * 2; i++)
     await clickText(host, /Start Game/);
     const started = await Promise.all([host, ...everyone].map(p => waitFor(p, /^[123]$|\n [123] \n/m, 20)));
     console.log(el(), 'countdown seen on', started.filter(Boolean).length, 'of', N + 1);
-    const done = await Promise.all([host, ...everyone].map(p => waitFor(p, /Tap to continue/i, 160)));
+    let players = [host, ...everyone];
+    if (QUIT) {
+      await sleep(4000); // into the round
+      const p1 = everyone[0];
+      const before = p1.url();
+      await p1.goBack({ timeout: 3000 }).catch(() => {});
+      await semantics(p1);
+      const dlg = await waitFor(p1, /Quit this game\?/, 6);
+      console.log(el(), 'P1 browser back:', dlg ? 'quit dialog shown' : 'NO DIALOG', p1.url() === before ? '(same page)' : '(url now ' + p1.url() + ')');
+      if (dlg) await clickText(p1, /Keep playing/);
+      const q = everyone[everyone.length - 1];
+      const qName = (await allText(q)).match(/Speller \d+/)?.[0];
+      await clickText(q, /Quit/);
+      const asked = await waitFor(q, /Quit this game\?/, 6);
+      await clickLast(q, /^Quit$/);
+      const home = await waitFor(q, /Host Game|Join Game/, 10);
+      const gone = await waitFor(host, /left the room/, 15);
+      console.log(el(), 'last joiner Quit button:', asked ? 'asked' : 'NOT ASKED', home ? 'left to home' : 'STILL IN ROUND', gone ? 'host saw them leave' : 'HOST DID NOT SEE LEAVE', qName || '');
+      players = players.filter(p => p !== q);
+      everyone.splice(everyone.length - 1, 1);
+    }
+    const done = await Promise.all(players.map(p => waitFor(p, /Tap to continue/i, 160)));
     played = done.filter(Boolean).length;
-    console.log(el(), 'results reached on', played, 'of', N + 1);
+    console.log(el(), 'results reached on', played, 'of', players.length);
     // Everyone's results list every player.
     const names = logs.HOST.map(l => (l.match(/\[Michi\] (.+) joined the room/) || [])[1]).filter(Boolean);
     for (const [i, p] of [host, ...everyone].entries()) {

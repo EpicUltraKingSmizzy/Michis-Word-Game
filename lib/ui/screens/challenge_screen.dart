@@ -25,7 +25,9 @@ class ChallengeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = session.challenge;
     final from = c.from?.name ?? 'A friend';
-    final ranked = List.of(c.players)..sort((a, b) => b.score.compareTo(a.score));
+    // Scores stay secret until the scoring after your round, like a real
+    // game together. Keep the link's order so the list doesn't hint either.
+    final players = c.players;
     return GradientScaffold(
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -50,9 +52,12 @@ class ChallengeScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Scores to beat', style: uiText(20, weight: FontWeight.w700)),
+                Text('Who you are playing', style: uiText(20, weight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text("Their scores stay hidden until the scoring after your round.",
+                    style: uiText(14, weight: FontWeight.w500, color: Colors.white70)),
                 const SizedBox(height: 8),
-                for (final p in ranked)
+                for (final p in players)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     child: Row(
@@ -60,16 +65,13 @@ class ChallengeScreen extends StatelessWidget {
                         AvatarCircle(avatar: p.avatar, size: 40),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(p.name, overflow: TextOverflow.ellipsis, style: uiText(19)),
-                              Text('${p.wordCount} ${p.wordCount == 1 ? 'word' : 'words'}',
-                                  style: uiText(13, weight: FontWeight.w500, color: Colors.white70)),
-                            ],
-                          ),
+                          child: Text(p.name, overflow: TextOverflow.ellipsis, style: uiText(19)),
                         ),
-                        LabelPill('${p.score}', color: MwgColors.gold, fontSize: 20),
+                        Semantics(
+                          label: 'Score ???',
+                          excludeSemantics: true,
+                          child: LabelPill('???', color: MwgColors.gold, fontSize: 20),
+                        ),
                       ],
                     ),
                   ),
