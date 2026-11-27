@@ -3,7 +3,9 @@ import 'package:material_ui/material_ui.dart';
 import '../../logic/board.dart';
 import '../theme.dart';
 
-enum TileLook { normal, selected, good, bad, dim }
+/// How a tile is drawn. [missed] is the grey-silver used to trace words the
+/// player missed at the end of a solo round.
+enum TileLook { normal, selected, good, bad, dim, missed }
 
 /// Draws a board of rounded letter tiles with an optional connector line.
 class BoardView extends StatelessWidget {
@@ -69,7 +71,7 @@ class BoardView extends StatelessWidget {
                           fontWeight: FontWeight.w900,
                           fontSize: board.label(i).length > 1 ? tile * 0.42 : tile * 0.55,
                           height: 1,
-                          color: (looks[i] == TileLook.good) ? MwgColors.tile : Colors.white,
+                          color: (looks[i] == TileLook.good || looks[i] == TileLook.missed) ? MwgColors.tile : Colors.white,
                         ),
                       ),
                     ),
@@ -96,6 +98,7 @@ class _TileBack extends StatelessWidget {
       TileLook.good => (MwgColors.green, MwgColors.greenEdge, Colors.white),
       TileLook.bad => (const Color(0xFFB0303C), const Color(0xFF6E1520), MwgColors.orange),
       TileLook.dim => (const Color(0xFF2A0B42), const Color(0xFF1A0629), null),
+      TileLook.missed => (MwgColors.silver, MwgColors.silverEdge, Colors.white),
     };
     final r = BorderRadius.circular(size * 0.22);
     final depth = size * 0.07;

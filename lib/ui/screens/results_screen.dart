@@ -25,8 +25,8 @@ import 'play_screen.dart' show TimesUpBanner;
 enum _Stage { intro, replay, missed, highlights, longest, winner }
 
 /// End of round: word counts, word-by-word scoring replay, (solo rounds only)
-/// some words the player missed, highlights, the longest word on the board,
-/// and the winner.
+/// a replay of some words the player missed, highlights, the longest word on
+/// the board, and the winner.
 class ResultsScreen extends StatefulWidget {
   const ResultsScreen({super.key, required this.app, required this.session, required this.results});
   final AppState app;
@@ -73,12 +73,24 @@ class _ResultsScreenState extends State<ResultsScreen> {
   /// Words on the board the solo player didn't find (empty if not solo).
   late final List<String> _missed = _computeMissed();
 
+  /// A path for every word on the board (filled in by [_computeMissed]).
+  Map<String, List<int>> _solved = const {};
+
+  /// The missed word being traced on the board, and whether its trace is done.
+  String? _missedWord;
+  bool _missedTraced = false;
+
+  /// "Skip" during the missed-words replay: ends it and moves on.
+  bool _skipMissed = false;
+  final _skipMissedSignal = Completer<void>();
+  bool _missedDone = false;
+
   /// True when every 3-5 letter word was found, so [_missed] holds longer ones.
   bool _allShortFound = false;
 
   List<String> _computeMissed() {
     if (!_isSoloRound) return const [];
-    final solved = solveBoard(r.board, widget.session.dictionary, minWordLength: r.settings.minWordLength);
+    final solved = _solved = solveBoard(r.board, widget.session.dictionary, minWordLength: r.settings.minWordLength);
     final found = r.players.first.words.map((w) => w.toLowerCase()).toSet();
     _allShortFound = !solved.keys.any((w) =>
         w.length >= MissedWordsTuning.shortMin && w.length <= MissedWordsTuning.shortMax && !found.contains(w));
@@ -112,6 +124,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
   void dispose() {
     _disposed = true;
     if (!_skipSignal.isCompleted) _skipSignal.complete();
+    if (!_skipMissedSignal.isCompleted) _skipMissedSignal.complete();
     _confetti.dispose();
     super.dispose();
   }
@@ -122,6 +135,20 @@ class _ResultsScreenState extends State<ResultsScreen> {
     if (_skipScoring || _disposed) return false;
     await Future.any([Future<void>.delayed(Duration(milliseconds: ms)), _skipSignal.future]);
     return mounted && !_skipScoring && !_disposed;
+  }
+
+  /// Pauses the missed-words replay. False if it should stop.
+  Future<bool> _waitMissed(int ms) async {
+    if (_skipMissed || _disposed) return false;
+    await Future.any([Future<void>.delayed(Duration(milliseconds: ms)), _skipMissedSignal.future]);
+    return mounted && !_skipMissed && !_disposed;
+  }
+
+  /// Skip button during the missed-words replay.
+  void _skipMissedReplay() {
+    if (_missedDone) return;
+    setState(() => _skipMissed = true);
+    if (!_skipMissedSignal.isCompleted) _skipMissedSignal.complete();
   }
 
   Completer<void>? _tapWait;
@@ -171,7 +198,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
     if (!mounted) return;
     if (_missed.isNotEmpty) {
       setState(() => _stage = _Stage.missed);
-      if (!await _waitTap()) return;
+      await _missedReplay();
+      if (_disposed || !mounted) return;
+      final skippedMissed = _skipMissed;
+      setState(() {
+        _missedDone = true;
+        _missedWord = null;
+      });
+      // Same as the scoring replay: after a Skip, go straight on.
+      if (!skippedMissed && !await _waitTap()) return;
+      if (!mounted) return;
     }
     setState(() => _stage = _Stage.highlights);
     if (!await _waitTap()) return;
@@ -205,6 +241,23 @@ class _ResultsScreenState extends State<ResultsScreen> {
       if (!await _wait(400)) return;
     }
     if (r.replay.isEmpty) await _wait(1500);
+  }
+
+  /// Traces each missed word on the board, letter by letter, with the same
+  /// timing as the scoring replay (no points). Returns early when skipped.
+  Future<void> _missedReplay() async {
+    // Let Michi's bubble pop up before the first word.
+    if (!await _waitMissed(900)) return;
+    for (final w in _missed) {
+      setState(() {
+        _missedWord = w;
+        _missedTraced = false;
+      });
+      final step = replayStepDuration(WordEntry(word: w, path: _solved[w]!, finders: [myId]));
+      if (!await _waitMissed(step.inMilliseconds - 400)) return;
+      setState(() => _missedTraced = true);
+      if (!await _waitMissed(400)) return;
+    }
   }
 
   void _finish() {
@@ -247,6 +300,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
                       child: const Icon(Icons.close_rounded),
                     ),
                     const Spacer(),
+                    if (_stage == _Stage.missed && !_missedDone)
+                      PillButton(
+                        key: const ValueKey('skip-missed'),
+                        tooltip: 'Skip the missed words',
+                        onTap: _skipMissedReplay,
+                        child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                          Text('Skip'),
+                          Icon(Icons.fast_forward_rounded),
+                        ]),
+                      ),
                     if (!_scoringDone)
                       PillButton(
                         key: const ValueKey('skip-scoring'),
@@ -407,38 +470,81 @@ class _ResultsScreenState extends State<ResultsScreen> {
     return ids.length == 1 ? ids.first : null;
   }
 
-  // ---- Stage: words the solo player missed ----
+  // ---- Stage: words the solo player missed, traced on the board ----
   Widget _missedWords() {
     final n = _missed.length;
+    final words = n == 1 ? '1 word' : '$n words';
     final text = _allShortFound
-        ? 'You found every short word! Here ${n == 1 ? 'is a longer one' : 'are some longer ones'} you missed:'
-        : 'Here ${n == 1 ? 'is a word' : 'are $n words'} you missed:';
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        MascotBubble(text: text),
-        const SizedBox(height: 18),
-        Wrap(
-          key: const ValueKey('missed-words'),
-          alignment: WrapAlignment.center,
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            for (var i = 0; i < n; i++)
-              TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: 1),
-                duration: Duration(milliseconds: 350 + i * 150),
-                curve: Curves.easeOutBack,
-                builder: (_, v, child) => Opacity(
-                  opacity: v.clamp(0, 1),
-                  child: Transform.scale(scale: 0.6 + 0.4 * v, child: child),
+        ? 'You found every short word! Here ${n == 1 ? 'is 1 longer word' : 'are $n longer words'} you missed!'
+        : 'Here ${n == 1 ? 'is' : 'are'} $words you missed!';
+    final w = _missedWord;
+    return LayoutBuilder(builder: (context, c) {
+      final gridSide = min(c.maxWidth - 120, c.maxHeight * 0.42).clamp(160.0, 340.0);
+      return Column(
+        children: [
+          const SizedBox(height: 8),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                // Michi pops up with the speech bubble.
+                TweenAnimationBuilder<double>(
+                  key: const ValueKey('missed-bubble'),
+                  tween: Tween(begin: 0, end: 1),
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeOutBack,
+                  builder: (_, v, child) => Opacity(
+                    opacity: v.clamp(0, 1),
+                    child: Transform.translate(
+                      offset: Offset(0, 40 * (1 - v)),
+                      child: Transform.scale(scale: 0.7 + 0.3 * v, alignment: Alignment.bottomLeft, child: child),
+                    ),
+                  ),
+                  child: MascotBubble(text: text, faceSize: 64),
                 ),
-                child: _MissedWordPill(word: _missed[i]),
-              ),
-          ],
-        ),
-      ],
-    );
+              ],
+            ),
+          ),
+          SizedBox(
+            height: 52,
+            child: w == null
+                ? null
+                : Center(child: LabelPill(w.toUpperCase(), color: MwgColors.silver, fontSize: 22)),
+          ),
+          SizedBox(
+            width: gridSide,
+            child: w == null
+                ? BoardView(board: r.board, looks: const {}, line: const [])
+                : _TracePath(
+                    key: ValueKey('missed-trace-$w'),
+                    board: r.board,
+                    path: _solved[w]!,
+                    done: _missedTraced,
+                    look: TileLook.missed,
+                    doneLook: TileLook.missed,
+                    lineColor: MwgColors.silverLine,
+                    doneLineColor: MwgColors.silverLine,
+                    duration: Duration(
+                        milliseconds: ((replayStepDuration(WordEntry(word: w, path: _solved[w]!, finders: [myId]))
+                                        .inMilliseconds -
+                                    400) *
+                                0.8)
+                            .round()),
+                  ),
+          ),
+          const SizedBox(height: 10),
+          // Keeps the board where it was during the scoring replay.
+          const Visibility(
+            visible: false,
+            maintainSize: true,
+            maintainAnimation: true,
+            maintainState: true,
+            child: _RulesPanel(),
+          ),
+          const SizedBox(height: 10),
+        ],
+      );
+    });
   }
 
   // ---- Stage: highlights ----
@@ -696,27 +802,6 @@ class _ScoreBadge extends StatelessWidget {
   }
 }
 
-/// One missed word and what it would have scored (in a solo round every
-/// word is unique, so it would have been doubled).
-class _MissedWordPill extends StatelessWidget {
-  const _MissedWordPill({required this.word});
-  final String word;
-
-  @override
-  Widget build(BuildContext context) {
-    final pts = wordPoints(word) * 2;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        LabelPill(word.toUpperCase(),
-            color: word.length > MissedWordsTuning.shortMax ? MwgColors.gold : MwgColors.cyan, fontSize: 22),
-        const SizedBox(width: 4),
-        Text('+$pts', style: uiText(15, weight: FontWeight.w700, color: Colors.white70)),
-      ],
-    );
-  }
-}
-
 class _RulesPanel extends StatelessWidget {
   const _RulesPanel();
 
@@ -907,11 +992,27 @@ class _TapHintState extends State<_TapHint> with SingleTickerProviderStateMixin 
 /// Spells a word out on the grid tile by tile over [duration], then turns
 /// green once the points are awarded ([done]).
 class _TracePath extends StatelessWidget {
-  const _TracePath({super.key, required this.board, required this.path, required this.duration, required this.done});
+  const _TracePath({
+    super.key,
+    required this.board,
+    required this.path,
+    required this.duration,
+    required this.done,
+    this.look = TileLook.selected,
+    this.doneLook = TileLook.good,
+    this.lineColor = MwgColors.pink,
+    this.doneLineColor = Colors.white,
+  });
   final Board board;
   final List<int> path;
   final Duration duration;
   final bool done;
+
+  /// Tile look and line colour while tracing, and once the word is done.
+  final TileLook look;
+  final TileLook doneLook;
+  final Color lineColor;
+  final Color doneLineColor;
 
   @override
   Widget build(BuildContext context) {
@@ -923,9 +1024,9 @@ class _TracePath extends StatelessWidget {
         final shown = path.sublist(0, n);
         return BoardView(
           board: board,
-          looks: {for (final t in shown) t: done ? TileLook.good : TileLook.selected},
+          looks: {for (final t in shown) t: done ? doneLook : look},
           line: shown,
-          lineColor: done ? Colors.white : MwgColors.pink,
+          lineColor: done ? doneLineColor : lineColor,
         );
       },
     );

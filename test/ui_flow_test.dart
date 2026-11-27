@@ -106,7 +106,7 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
-  testWidgets('solo round: missed words page comes after scoring, before the highlights', (tester) async {
+  Future<(HostSession, RoundResults, List<String>)> soloRound(WidgetTester tester) async {
     final host = (await tester.runAsync(() => HostSession.create(
           dictionary: dict,
           linkFactory: () => FakeHostLink(FakeNetwork()),
@@ -127,17 +127,53 @@ void main() {
       },
       solved: solved,
     );
+    return (host, r, mine);
+  }
+
+  testWidgets('solo round: missed words are traced on the board after scoring, then the highlights',
+      (tester) async {
+    final (host, r, mine) = await soloRound(tester);
     await pumpResults(tester, host, r);
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.byKey(const ValueKey('skip-scoring')));
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 500));
     expect(stage('missed'), findsOneWidget);
-    expect(find.byKey(const ValueKey('missed-words')), findsOneWidget);
-    for (final w in mine) {
-      expect(find.text(w.toUpperCase()), findsNothing, reason: 'found words are not "missed"');
+    expect(find.text('Here are 10 words you missed!'), findsOneWidget);
+    expect(find.byKey(const ValueKey('skip-missed')), findsOneWidget);
+    // Watch the whole replay: no found word and never the longest word.
+    final shown = <String>{};
+    for (var i = 0; i < 80 && find.text('Tap to continue').evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+      for (final t in tester.widgetList<Text>(find.byType(Text))) {
+        final d = t.data;
+        if (d != null && RegExp(r'^[A-Z]{3,}$').hasMatch(d)) shown.add(d);
+      }
     }
-    expect(find.text(r.longest!.word.toUpperCase()), findsNothing, reason: 'longest word has its own page');
+    expect(stage('missed'), findsOneWidget, reason: 'waits for a tap after the replay');
+    expect(find.byKey(const ValueKey('skip-missed')), findsNothing);
+    final missedShown = shown.where((w) => w.length > 1 && !r.board.tiles.contains(w)).toSet();
+    expect(missedShown.length, greaterThanOrEqualTo(10));
+    for (final w in mine) {
+      expect(missedShown.contains(w.toUpperCase()), isFalse, reason: 'found words are not "missed"');
+    }
+    expect(missedShown.contains(r.longest!.word.toUpperCase()), isFalse, reason: 'longest word has its own page');
+    expect(find.textContaining(RegExp(r'^[A-Z]+ ?\+\d')), findsNothing, reason: 'no points for missed words');
     await tapThrough(tester);
+    expect(stage('highlights'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 5));
+    await tester.runAsync(host.leave);
+  });
+
+  testWidgets('solo round: Skip during the missed words goes straight to the highlights', (tester) async {
+    final (host, r, _) = await soloRound(tester);
+    await pumpResults(tester, host, r);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const ValueKey('skip-scoring')));
+    await tester.pump(const Duration(milliseconds: 1500));
+    expect(stage('missed'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('skip-missed')));
+    await tester.pump(const Duration(milliseconds: 500));
     expect(stage('highlights'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 5));

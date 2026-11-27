@@ -23,6 +23,11 @@ abstract final class MwgColors {
   static const magenta = Color(0xFF9A1E8C);
   static const gold = Color(0xFFFFD34E);
   static const ribbon = Color(0xFF27C36A);
+
+  /// Grey-silver for words the player missed (tiles, line and label).
+  static const silver = Color(0xFFC9CED6);
+  static const silverEdge = Color(0xFF8D94A0);
+  static const silverLine = Color(0xFFEDEFF3);
 }
 
 const String fontUi = 'Fredoka';
