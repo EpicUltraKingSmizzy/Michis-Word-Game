@@ -11,8 +11,7 @@ Set<String> _part(WordListPart p) =>
 
 void main() {
   test('small trie lookups', () {
-    final d = Dictionary.fromWords(['cat', 'cats', 'car', 'Dog', 'ab', 'x-ray', 'bad'],
-        blocked: {'bad'});
+    final d = Dictionary.fromWords(['cat', 'cats', 'car', 'Dog', 'ab', 'x-ray', 'bad'], blocked: {'bad'});
     expect(d.contains('cat'), isTrue);
     expect(d.contains('cats'), isTrue);
     expect(d.contains('car'), isTrue);
@@ -27,13 +26,11 @@ void main() {
 
   test('bundled dictionary has US and UK spellings and no blocked words', () {
     final d = realDictionary();
-    expect(d.wordCount, greaterThan(120000));
+    expect(d.wordCount, greaterThan(100000));
     for (final w in ['color', 'colour', 'honor', 'honour', 'quiet', 'retard', 'gypsy', 'nips', 'poof']) {
       expect(d.contains(w), isTrue, reason: w);
     }
-    final blocked = File(blocklistAsset)
-        .readAsLinesSync()
-        .where((l) => l.trim().isNotEmpty && !l.startsWith('#'));
+    final blocked = File(blocklistAsset).readAsLinesSync().where((l) => l.trim().isNotEmpty && !l.startsWith('#'));
     expect(blocked.length, 87);
     for (final w in blocked) {
       expect(d.contains(w.trim()), isFalse, reason: 'blocked word present');
@@ -63,6 +60,63 @@ void main() {
     }
   });
 
+  test('places and people\'s names are separate files, loaded by default', () {
+    final core = _part(WordListPart.core);
+    final places = _part(WordListPart.places);
+    final names = _part(WordListPart.personNames);
+    expect(places.length, greaterThan(2000));
+    expect(names.length, greaterThan(4000));
+    final az = RegExp(r'^[a-z]{3,}$');
+    for (final w in [...places, ...names]) {
+      expect(az.hasMatch(w), isTrue, reason: w);
+    }
+    // Words that are only a place or only a name live in their own file...
+    for (final w in ['korea', 'paris', 'london', 'riga', 'mumbai', 'georgia']) {
+      expect(places, contains(w));
+    }
+    for (final w in ['robert', 'michael', 'jim', 'kubrick']) {
+      expect(names, contains(w));
+    }
+    // ...but a word with another meaning stays in the main list.
+    for (final w in [
+      'turkey',
+      'guinea',
+      'china',
+      'nice',
+      'reading',
+      'rob',
+      'bill',
+      'mark',
+      'will',
+      'jack',
+      'grace',
+      'bob',
+    ]) {
+      expect(core, contains(w));
+    }
+    final d = realDictionary();
+    for (final w in ['korea', 'robert', 'turkey', 'rob']) {
+      expect(d.contains(w), isTrue, reason: w);
+    }
+  });
+
+  test('no word is repeated in a file or in more than one file', () {
+    final seen = <String, WordListPart>{};
+    for (final part in WordListPart.values) {
+      final words = decodeWordList(File(part.asset).readAsBytesSync())
+          .map((w) => w.trim())
+          .where((w) => w.isNotEmpty)
+          .toList();
+      final unique = words.toSet();
+      expect(unique.length, words.length, reason: 'repeated word inside ${part.asset}');
+      for (final w in unique) {
+        final other = seen[w];
+        expect(other, isNull, reason: '$w is in both ${other?.asset} and ${part.asset}');
+        seen[w] = part;
+      }
+    }
+  });
+
   test('each optional list can be switched off', () {
     final parts = bundledWordListParts();
     final blocklist = File(blocklistAsset).readAsStringSync();
@@ -76,19 +130,45 @@ void main() {
     expect(core.contains('droid'), isFalse);
     expect(core.contains('badass'), isFalse);
     expect(core.contains('quiet'), isTrue);
-    expect(realDictionary().wordCount, core.wordCount + 2000 + 110);
+    final noPlaces = dictionaryFromParts(parts, blocklist, options: const WordListOptions(places: false));
+    final noNames = dictionaryFromParts(parts, blocklist, options: const WordListOptions(personNames: false));
+    expect(noPlaces.contains('korea'), isFalse);
+    expect(noPlaces.contains('robert'), isTrue);
+    expect(noNames.contains('robert'), isFalse);
+    expect(noNames.contains('korea'), isTrue);
+    expect(core.contains('korea'), isFalse);
+    expect(core.contains('robert'), isFalse);
+    final extras =
+        _part(WordListPart.slang).length +
+        _part(WordListPart.profanity).length +
+        _part(WordListPart.places).length +
+        _part(WordListPart.personNames).length;
+    expect(realDictionary().wordCount, core.wordCount + extras);
   });
 
-  test('the blocklist also applies to the slang and profanity lists', () {
-    final d = dictionaryFromParts(bundledWordListParts(), 'droid\nbadass\n');
+  test('the blocklist also applies to the optional lists', () {
+    final d = dictionaryFromParts(bundledWordListParts(), 'droid\nbadass\nkorea\nrobert\n');
     expect(d.contains('droid'), isFalse);
     expect(d.contains('badass'), isFalse);
+    expect(d.contains('korea'), isFalse);
+    expect(d.contains('robert'), isFalse);
     expect(d.contains('droids'), isTrue);
   });
 
   test('obscure words and proper nouns were removed', () {
     final d = realDictionary();
-    for (final w in ['ceyx', 'ersh', 'fley', 'quidnunc', 'gomel', 'dneprodzerzhinsk', 'befools', 'airting']) {
+    for (final w in [
+      'ceyx',
+      'ersh',
+      'fley',
+      'quidnunc',
+      'gomel',
+      'dneprodzerzhinsk',
+      'befools',
+      'airting',
+      'superfuse',
+      'supposititious',
+    ]) {
       expect(d.contains(w), isFalse, reason: w);
     }
     final removed = File('tool/dict/removed_words.txt')
@@ -96,7 +176,7 @@ void main() {
         .map((l) => l.trim())
         .where((l) => l.isNotEmpty && !l.startsWith('#'))
         .toList();
-    expect(removed.length, greaterThanOrEqualTo(5000));
+    expect(removed.length, greaterThanOrEqualTo(25000));
     for (final w in removed) {
       expect(d.contains(w), isFalse, reason: 'removed word present: $w');
     }

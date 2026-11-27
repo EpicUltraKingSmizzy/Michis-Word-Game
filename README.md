@@ -141,21 +141,31 @@ credentials and has a usage cap.
 
 ## Dictionary
 
-The game dictionary is built from three gzipped word lists (one word per line),
-listed in `WordListPart` (lib/logic/word_list.dart):
+The game dictionary is built from five gzipped word lists (one word per line,
+sorted), listed in `WordListPart` (lib/logic/word_list.dart):
 
 - `assets/dict/words.txt.gz`: the core list. SCOWL size 70, American + British,
-  lowercase a-z, 3+ letters (120,141 words), minus the obscure words and proper
-  nouns in `tool/dict/removed_words.txt`. Rebuild it with `tool/build_dictionary.py`.
+  lowercase a-z, 3+ letters (96,238 words), minus the obscure words in
+  `tool/dict/removed_words.txt` and minus every word in the other lists.
+  Rebuild it with `tool/build_dictionary.py`.
 - `assets/dict/slang.txt.gz`: 2,000 common slang and modern words (droid, app,
   bruh, yeet...).
 - `assets/dict/profanity.txt.gz`: 110 profanity words that were added with the
   slang (the core list also has its own profanity, which isn't split out).
+- `assets/dict/places.txt.gz`: 2,260 words that are only place names (korea,
+  paris, mumbai, riga, yosemite), from countries and cities to seas and landmarks.
+- `assets/dict/person_names.txt.gz`: 4,849 words that are only people's names
+  (robert, michael, jim, surnames such as kubrick).
 
-All three are loaded by default. `WordListOptions(slang: false)` or
-`WordListOptions(profanity: false)` leaves a list out, for a future toggle.
-`assets/dict/blocklist.txt` lists 87 slurs that are removed from every list when
-the game loads.
+A place or name that is also an ordinary word (turkey, rob, grace) stays in
+the core list. All five lists load by default; `WordListOptions(slang: false)`,
+`profanity: false`, `places: false` or `personNames: false` leaves one out, for
+a future toggle. `assets/dict/blocklist.txt` lists 87 slurs that are removed
+from every list when the game loads.
+
+Every word lives in exactly one file. `python3 tool/dict/check_duplicates.py`
+checks that, and `test/dictionary_test.dart` runs the same check, so the
+web deploy (which runs `flutter test`) fails if a duplicate creeps in. See DESIGN_QUESTIONS.md sections B and C for how the lists were made.
 
 ## Customizing
 

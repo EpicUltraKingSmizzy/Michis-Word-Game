@@ -73,6 +73,8 @@ flutter:
     - assets/dict/words.txt.gz
     - assets/dict/slang.txt.gz
     - assets/dict/profanity.txt.gz
+    - assets/dict/places.txt.gz
+    - assets/dict/person_names.txt.gz
     - assets/dict/blocklist.txt
 
   fonts:
