@@ -71,6 +71,8 @@ flutter:
     - assets/mascot.jpg
     - assets/mascot_face.png
     - assets/dict/words.txt.gz
+    - assets/dict/slang.txt.gz
+    - assets/dict/profanity.txt.gz
     - assets/dict/blocklist.txt
 
   fonts:

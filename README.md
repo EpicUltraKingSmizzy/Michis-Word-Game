@@ -141,10 +141,21 @@ credentials and has a usage cap.
 
 ## Dictionary
 
-`assets/dict/words.txt.gz` is SCOWL size 70, American + British, lowercase a-z,
-3+ letters (125,427 words). Rebuild it with `tool/build_dictionary.py`.
-`assets/dict/blocklist.txt` lists 87 slurs that are removed when the game
-loads. Profanity and sexual words are intentionally kept.
+The game dictionary is built from three gzipped word lists (one word per line),
+listed in `WordListPart` (lib/logic/word_list.dart):
+
+- `assets/dict/words.txt.gz`: the core list. SCOWL size 70, American + British,
+  lowercase a-z, 3+ letters (120,141 words), minus the obscure words and proper
+  nouns in `tool/dict/removed_words.txt`. Rebuild it with `tool/build_dictionary.py`.
+- `assets/dict/slang.txt.gz`: 2,000 common slang and modern words (droid, app,
+  bruh, yeet...).
+- `assets/dict/profanity.txt.gz`: 110 profanity words that were added with the
+  slang (the core list also has its own profanity, which isn't split out).
+
+All three are loaded by default. `WordListOptions(slang: false)` or
+`WordListOptions(profanity: false)` leaves a list out, for a future toggle.
+`assets/dict/blocklist.txt` lists 87 slurs that are removed from every list when
+the game loads.
 
 ## Customizing
 

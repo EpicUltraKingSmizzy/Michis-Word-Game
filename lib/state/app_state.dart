@@ -88,14 +88,22 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  static Future<Dictionary> _loadBundledDictionary() async {
-    final words = await rootBundle.load('assets/dict/words.txt.gz');
-    final blocked = await rootBundle.loadString('assets/dict/blocklist.txt');
-    return compute(_buildDictionary, (words.buffer.asUint8List(), blocked));
+  /// Loads every word-list part ([WordListPart]) and builds the dictionary
+  /// with [options] (all parts on by default).
+  static Future<Dictionary> _loadBundledDictionary(
+      {WordListOptions options = WordListOptions.all}) async {
+    final parts = <WordListPart, Uint8List>{};
+    for (final part in options.parts) {
+      final data = await rootBundle.load(part.asset);
+      parts[part] = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    }
+    final blocked = await rootBundle.loadString(blocklistAsset);
+    return compute(_buildDictionary, (parts, blocked, options));
   }
 
-  static Dictionary _buildDictionary((Uint8List, String) input) =>
-      dictionaryFromAssets(input.$1, input.$2);
+  static Dictionary _buildDictionary(
+          (Map<WordListPart, Uint8List>, String, WordListOptions) input) =>
+      dictionaryFromParts(input.$1, input.$2, options: input.$3);
 
   ProfileStore? get store => _store;
 

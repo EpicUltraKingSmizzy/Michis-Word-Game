@@ -2,8 +2,12 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:michis_word_game/logic/dictionary.dart';
+import 'package:michis_word_game/logic/word_list.dart';
 
 import 'test_helpers.dart';
+
+Set<String> _part(WordListPart p) =>
+    decodeWordList(File(p.asset).readAsBytesSync()).map((w) => w.trim()).where((w) => w.isNotEmpty).toSet();
 
 void main() {
   test('small trie lookups', () {
@@ -27,12 +31,74 @@ void main() {
     for (final w in ['color', 'colour', 'honor', 'honour', 'quiet', 'retard', 'gypsy', 'nips', 'poof']) {
       expect(d.contains(w), isTrue, reason: w);
     }
-    final blocked = File('assets/dict/blocklist.txt')
+    final blocked = File(blocklistAsset)
         .readAsLinesSync()
         .where((l) => l.trim().isNotEmpty && !l.startsWith('#'));
     expect(blocked.length, 87);
     for (final w in blocked) {
       expect(d.contains(w.trim()), isFalse, reason: 'blocked word present');
+    }
+  });
+
+  test('slang and profanity lists are separate files, loaded by default', () {
+    final core = _part(WordListPart.core);
+    final slang = _part(WordListPart.slang);
+    final profanity = _part(WordListPart.profanity);
+    expect(slang.length, 2000);
+    expect(profanity.length, 110);
+    final az = RegExp(r'^[a-z]{3,}$');
+    for (final w in [...slang, ...profanity]) {
+      expect(az.hasMatch(w), isTrue, reason: w);
+    }
+    expect(slang.intersection(core), isEmpty);
+    expect(profanity.intersection(core), isEmpty);
+    expect(slang.intersection(profanity), isEmpty);
+
+    final d = realDictionary();
+    for (final w in ['droid', 'droids', 'roid', 'roids', 'app', 'cafe', 'donut', 'bruh', 'yeet', 'rizz']) {
+      expect(d.contains(w), isTrue, reason: w);
+    }
+    for (final w in ['badass', 'dumbass', 'butthurt']) {
+      expect(d.contains(w), isTrue, reason: w);
+    }
+  });
+
+  test('each optional list can be switched off', () {
+    final parts = bundledWordListParts();
+    final blocklist = File(blocklistAsset).readAsStringSync();
+    final noSlang = dictionaryFromParts(parts, blocklist, options: const WordListOptions(slang: false));
+    final noProfanity = dictionaryFromParts(parts, blocklist, options: const WordListOptions(profanity: false));
+    final core = dictionaryFromParts(parts, blocklist, options: WordListOptions.coreOnly);
+    expect(noSlang.contains('droid'), isFalse);
+    expect(noSlang.contains('badass'), isTrue);
+    expect(noProfanity.contains('droid'), isTrue);
+    expect(noProfanity.contains('badass'), isFalse);
+    expect(core.contains('droid'), isFalse);
+    expect(core.contains('badass'), isFalse);
+    expect(core.contains('quiet'), isTrue);
+    expect(realDictionary().wordCount, core.wordCount + 2000 + 110);
+  });
+
+  test('the blocklist also applies to the slang and profanity lists', () {
+    final d = dictionaryFromParts(bundledWordListParts(), 'droid\nbadass\n');
+    expect(d.contains('droid'), isFalse);
+    expect(d.contains('badass'), isFalse);
+    expect(d.contains('droids'), isTrue);
+  });
+
+  test('obscure words and proper nouns were removed', () {
+    final d = realDictionary();
+    for (final w in ['ceyx', 'ersh', 'fley', 'quidnunc', 'gomel', 'dneprodzerzhinsk', 'befools', 'airting']) {
+      expect(d.contains(w), isFalse, reason: w);
+    }
+    final removed = File('tool/dict/removed_words.txt')
+        .readAsLinesSync()
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty && !l.startsWith('#'))
+        .toList();
+    expect(removed.length, greaterThanOrEqualTo(5000));
+    for (final w in removed) {
+      expect(d.contains(w), isFalse, reason: 'removed word present: $w');
     }
   });
 }
