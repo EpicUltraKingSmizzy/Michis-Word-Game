@@ -32,6 +32,13 @@ enum WordListPart {
 /// Path of the slur blocklist, applied to every word-list part.
 const String blocklistAsset = 'assets/dict/blocklist.txt';
 
+/// Path of the rejected-words list: known non-words (for now every 3-letter
+/// combination that isn't in the dictionary). It is NOT part of the game
+/// dictionary. It ships with the app so the planned failed-words feature can
+/// drop known non-words locally before uploading a player's failed tries.
+/// No word in it may be in any [WordListPart] file (tests enforce this).
+const String rejectedWordsAsset = 'assets/dict/rejected_words.txt.gz';
+
 /// Which optional word lists are part of a dictionary. All are on by default.
 class WordListOptions {
   const WordListOptions({

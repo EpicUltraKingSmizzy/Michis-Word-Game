@@ -41,8 +41,8 @@ void main() {
     final core = _part(WordListPart.core);
     final slang = _part(WordListPart.slang);
     final profanity = _part(WordListPart.profanity);
-    expect(slang.length, 2000);
-    expect(profanity.length, 110);
+    expect(slang.length, 2011);
+    expect(profanity.length, 112);
     final az = RegExp(r'^[a-z]{3,}$');
     for (final w in [...slang, ...profanity]) {
       expect(az.hasMatch(w), isTrue, reason: w);
@@ -126,6 +126,34 @@ void main() {
         seen[w] = part;
       }
     }
+  });
+
+  test('the rejected-words list never overlaps the dictionary', () {
+    final rejected = decodeWordList(File(rejectedWordsAsset).readAsBytesSync()).where((w) => w.isNotEmpty).toList();
+    expect(rejected.toSet().length, rejected.length, reason: 'repeated rejected word');
+    expect(rejected.length, 16415);
+    final az3 = RegExp(r'^[a-z]{3}$');
+    final d = realDictionary();
+    final blocked = File(blocklistAsset)
+        .readAsLinesSync()
+        .map((l) => l.trim().toLowerCase())
+        .where((l) => l.isNotEmpty && !l.startsWith('#'))
+        .toSet();
+    final all = <String>{for (final part in WordListPart.values) ..._part(part)};
+    for (final w in rejected) {
+      expect(az3.hasMatch(w), isTrue, reason: w);
+      expect(all.contains(w), isFalse, reason: 'rejected word in a word list: $w');
+      expect(d.contains(w), isFalse, reason: w);
+      expect(blocked.contains(w), isFalse, reason: 'rejected word on the blocklist: $w');
+    }
+    // Every 3-letter combination is either a dictionary word or rejected.
+    expect(rejected.length + all.where((w) => w.length == 3).length, 26 * 26 * 26);
+    for (final w in ['dvd', 'cia', 'fbi', 'dna', 'ufo', 'lbs', 'com', 'eco', 'rom', 'doo', 'vue']) {
+      expect(_part(WordListPart.slang), contains(w));
+    }
+    expect(_part(WordListPart.profanity), containsAll(['wtf', 'cum']));
+    expect(_part(WordListPart.personNames), contains('fel'));
+    expect(_part(WordListPart.surnames), contains('zha'));
   });
 
   test('each optional list can be switched off', () {

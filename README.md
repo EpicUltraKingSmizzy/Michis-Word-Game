@@ -148,15 +148,15 @@ sorted), listed in `WordListPart` (lib/logic/word_list.dart):
   lowercase a-z, 3+ letters (96,238 words), minus the obscure words in
   `tool/dict/removed_words.txt` and minus every word in the other lists.
   Rebuild it with `tool/build_dictionary.py`.
-- `assets/dict/slang.txt.gz`: 2,000 common slang and modern words (droid, app,
-  bruh, yeet...).
-- `assets/dict/profanity.txt.gz`: 110 profanity words that were added with the
+- `assets/dict/slang.txt.gz`: 2,011 common slang and modern words (droid, app,
+  bruh, yeet, dvd, fbi...).
+- `assets/dict/profanity.txt.gz`: 112 profanity words that were added with the
   slang (the core list also has its own profanity, which isn't split out).
 - `assets/dict/places.txt.gz`: 2,260 words that are only place names (korea,
   paris, mumbai, riga, yosemite), from countries and cities to seas and landmarks.
-- `assets/dict/person_names.txt.gz`: 4,190 words that are only given names or
+- `assets/dict/person_names.txt.gz`: 4,191 words that are only given names or
   nicknames (robert, michael, jim, sonu).
-- `assets/dict/surnames.txt.gz`: 1,659 words that are only surnames (martinez,
+- `assets/dict/surnames.txt.gz`: 1,660 words that are only surnames (martinez,
   sharma, nguyen, kubrick).
 
 A place or name that is also an ordinary word (turkey, rob, grace) stays in
@@ -165,9 +165,14 @@ the core list. All six lists load by default; `WordListOptions(slang: false)`,
 a future toggle. `assets/dict/blocklist.txt` lists 87 slurs that are removed
 from every list when the game loads.
 
+`assets/dict/rejected_words.txt.gz` is not part of the dictionary: it lists
+16,415 known non-words (every 3-letter combination that isn't a dictionary
+word) for the planned failed-words feature to filter out on the phone. Tests
+make sure it never overlaps the dictionary.
+
 Every word lives in exactly one file. `python3 tool/dict/check_duplicates.py`
 checks that, and `test/dictionary_test.dart` runs the same check, so the
-web deploy (which runs `flutter test`) fails if a duplicate creeps in. See DESIGN_QUESTIONS.md sections B, C and E for how the lists were made.
+web deploy (which runs `flutter test`) fails if a duplicate creeps in. See DESIGN_QUESTIONS.md sections B, C, E and F for how the lists were made.
 
 ## Customizing
 
