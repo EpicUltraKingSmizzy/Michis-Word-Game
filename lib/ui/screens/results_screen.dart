@@ -7,8 +7,10 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../logic/board.dart';
 import '../../logic/challenge.dart';
+import '../../logic/missed_words.dart';
 import '../../logic/models.dart';
 import '../../logic/replay_order.dart';
+import '../../logic/solver.dart';
 import '../../platform/share.dart';
 import '../../state/app_state.dart';
 import '../../state/profile_store.dart';
@@ -20,10 +22,11 @@ import '../widgets/common.dart';
 import '../widgets/mascot.dart';
 import 'play_screen.dart' show TimesUpBanner;
 
-enum _Stage { intro, replay, highlights, longest, winner }
+enum _Stage { intro, replay, missed, highlights, longest, winner }
 
-/// End of round: word counts, word-by-word scoring replay, highlights, the
-/// longest word on the board, and the winner.
+/// End of round: word counts, word-by-word scoring replay, (solo rounds only)
+/// some words the player missed, highlights, the longest word on the board,
+/// and the winner.
 class ResultsScreen extends StatefulWidget {
   const ResultsScreen({super.key, required this.app, required this.session, required this.results});
   final AppState app;
@@ -61,6 +64,32 @@ class _ResultsScreenState extends State<ResultsScreen> {
   final _confetti = ConfettiController(duration: const Duration(seconds: 4));
 
   RoundResults get r => widget.results;
+
+  /// A solo round: the host played alone (not a challenge link, which has
+  /// the friends' results in it, and not a multiplayer room).
+  bool get _isSoloRound =>
+      widget.session is HostSession && r.players.length == 1 && r.players.first.player.id == myId;
+
+  /// Words on the board the solo player didn't find (empty if not solo).
+  late final List<String> _missed = _computeMissed();
+
+  /// True when every 3-5 letter word was found, so [_missed] holds longer ones.
+  bool _allShortFound = false;
+
+  List<String> _computeMissed() {
+    if (!_isSoloRound) return const [];
+    final solved = solveBoard(r.board, widget.session.dictionary, minWordLength: r.settings.minWordLength);
+    final found = r.players.first.words.map((w) => w.toLowerCase()).toSet();
+    _allShortFound = !solved.keys.any((w) =>
+        w.length >= MissedWordsTuning.shortMin && w.length <= MissedWordsTuning.shortMax && !found.contains(w));
+    return pickMissedWords(
+      solved: solved.keys,
+      found: found,
+      // The longest word(s) have their own reveal later.
+      exclude: r.longest?.allLongest ?? const [],
+      seed: missedWordsSeed(r.board.tiles),
+    );
+  }
   String get myId => widget.session.myId;
 
   @override
@@ -140,6 +169,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
     // final scores are on screen already, so go straight on.
     if (!skipped && !await _waitTap()) return;
     if (!mounted) return;
+    if (_missed.isNotEmpty) {
+      setState(() => _stage = _Stage.missed);
+      if (!await _waitTap()) return;
+    }
     setState(() => _stage = _Stage.highlights);
     if (!await _waitTap()) return;
     if (r.longest != null) {
@@ -193,6 +226,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final body = switch (_stage) {
       _Stage.intro => _intro(),
       _Stage.replay => _replay(),
+      _Stage.missed => _missedWords(),
       _Stage.highlights => _highlights(),
       _Stage.longest => _longest(),
       _Stage.winner => _winner(),
@@ -371,6 +405,40 @@ class _ResultsScreenState extends State<ResultsScreen> {
     if (top == 0) return null;
     final ids = _shown.keys.where((k) => _shown[k] == top).toList();
     return ids.length == 1 ? ids.first : null;
+  }
+
+  // ---- Stage: words the solo player missed ----
+  Widget _missedWords() {
+    final n = _missed.length;
+    final text = _allShortFound
+        ? 'You found every short word! Here ${n == 1 ? 'is a longer one' : 'are some longer ones'} you missed:'
+        : 'Here ${n == 1 ? 'is a word' : 'are $n words'} you missed:';
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        MascotBubble(text: text),
+        const SizedBox(height: 18),
+        Wrap(
+          key: const ValueKey('missed-words'),
+          alignment: WrapAlignment.center,
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (var i = 0; i < n; i++)
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: 1),
+                duration: Duration(milliseconds: 350 + i * 150),
+                curve: Curves.easeOutBack,
+                builder: (_, v, child) => Opacity(
+                  opacity: v.clamp(0, 1),
+                  child: Transform.scale(scale: 0.6 + 0.4 * v, child: child),
+                ),
+                child: _MissedWordPill(word: _missed[i]),
+              ),
+          ],
+        ),
+      ],
+    );
   }
 
   // ---- Stage: highlights ----
@@ -624,6 +692,27 @@ class _ScoreBadge extends StatelessWidget {
         ),
         child: Text(hidden ? '???' : '$score', style: uiText(20, weight: FontWeight.w700, color: MwgColors.tile)),
       ),
+    );
+  }
+}
+
+/// One missed word and what it would have scored (in a solo round every
+/// word is unique, so it would have been doubled).
+class _MissedWordPill extends StatelessWidget {
+  const _MissedWordPill({required this.word});
+  final String word;
+
+  @override
+  Widget build(BuildContext context) {
+    final pts = wordPoints(word) * 2;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        LabelPill(word.toUpperCase(),
+            color: word.length > MissedWordsTuning.shortMax ? MwgColors.gold : MwgColors.cyan, fontSize: 22),
+        const SizedBox(width: 4),
+        Text('+$pts', style: uiText(15, weight: FontWeight.w700, color: Colors.white70)),
+      ],
     );
   }
 }

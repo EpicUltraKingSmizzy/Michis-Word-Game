@@ -10,8 +10,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:michis_word_game/logic/challenge.dart';
 import 'package:michis_word_game/logic/dice.dart';
 import 'package:michis_word_game/logic/models.dart';
+import 'package:michis_word_game/logic/scoring.dart';
 import 'package:michis_word_game/logic/solver.dart';
 import 'package:michis_word_game/main.dart';
+import 'package:michis_word_game/net/fake_link.dart';
 import 'package:michis_word_game/state/app_state.dart';
 import 'package:michis_word_game/state/session.dart';
 import 'package:michis_word_game/ui/screens/challenge_screen.dart';
@@ -102,6 +104,44 @@ void main() {
     expect(stage('winner'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('solo round: missed words page comes after scoring, before the highlights', (tester) async {
+    final host = (await tester.runAsync(() => HostSession.create(
+          dictionary: dict,
+          linkFactory: () => FakeHostLink(FakeNetwork()),
+          name: 'Me',
+          avatar: 2,
+          random: Random(3),
+        )))!;
+    final b = generateGoodBoard(size: 4, minWordLength: 3, dictionary: dict, random: Random(11));
+    final solved = solveBoard(b, dict);
+    final mine = (solved.keys.toList()..sort()).take(3).toList();
+    const settings = GameSettings(gridSize: 4, minWordLength: 3, durationSeconds: 60);
+    final r = scoreRound(
+      board: b,
+      settings: settings,
+      players: host.players,
+      submissions: {
+        host.myId: [for (var i = 0; i < mine.length; i++) Submission(word: mine[i], path: solved[mine[i]]!, atMs: i)],
+      },
+      solved: solved,
+    );
+    await pumpResults(tester, host, r);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const ValueKey('skip-scoring')));
+    await tester.pump(const Duration(seconds: 3));
+    expect(stage('missed'), findsOneWidget);
+    expect(find.byKey(const ValueKey('missed-words')), findsOneWidget);
+    for (final w in mine) {
+      expect(find.text(w.toUpperCase()), findsNothing, reason: 'found words are not "missed"');
+    }
+    expect(find.text(r.longest!.word.toUpperCase()), findsNothing, reason: 'longest word has its own page');
+    await tapThrough(tester);
+    expect(stage('highlights'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 5));
+    await tester.runAsync(host.leave);
   });
 
   testWidgets('Skip during "Time\'s up" also lands on the highlights', (tester) async {
