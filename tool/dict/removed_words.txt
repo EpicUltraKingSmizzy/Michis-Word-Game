@@ -526,7 +526,6 @@ krak
 tupi
 cymry
 lunik
-gond
 urfa
 agram
 wisla
@@ -2199,7 +2198,6 @@ gosse
 lippe
 synge
 turco
-lugo
 mab
 styx
 lietuva
@@ -2256,7 +2254,6 @@ ashur
 rigel
 woden
 caen
-dou
 livy
 balmung
 scarron
@@ -2815,7 +2812,6 @@ tiflis
 copts
 nahum
 priam
-soong
 althing
 molucca
 monteux
@@ -2837,7 +2833,6 @@ venite
 lamaze
 pythia
 tanguy
-jena
 aport
 forby
 cairene
@@ -2931,7 +2926,6 @@ denys
 ganda
 kiowa
 posen
-baez
 farer
 argolis
 kwangju
@@ -3004,7 +2998,6 @@ haida
 hogue
 krupp
 hel
-rios
 viyella
 asdic
 achates
@@ -3071,7 +3064,6 @@ braw
 hest
 lati
 fenrir
-maurya
 monnet
 ojibwa
 semtex
@@ -3317,7 +3309,6 @@ narvik
 oglala
 seurat
 vauban
-braga
 capra
 minna
 araucanian
@@ -5148,6 +5139,7 @@ wambles
 wambling
 yeaning
 zarfs
+# (9 more came back as approved surnames in round 4: baez, braga, dou, gond, jena, lugo, maurya, rios, soong.)
 # Part 2: the flagged words you picked from flagged_removals (round 3).
 superfuse
 supposititious

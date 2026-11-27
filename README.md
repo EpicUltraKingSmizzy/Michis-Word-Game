@@ -141,7 +141,7 @@ credentials and has a usage cap.
 
 ## Dictionary
 
-The game dictionary is built from five gzipped word lists (one word per line,
+The game dictionary is built from six gzipped word lists (one word per line,
 sorted), listed in `WordListPart` (lib/logic/word_list.dart):
 
 - `assets/dict/words.txt.gz`: the core list. SCOWL size 70, American + British,
@@ -154,18 +154,20 @@ sorted), listed in `WordListPart` (lib/logic/word_list.dart):
   slang (the core list also has its own profanity, which isn't split out).
 - `assets/dict/places.txt.gz`: 2,260 words that are only place names (korea,
   paris, mumbai, riga, yosemite), from countries and cities to seas and landmarks.
-- `assets/dict/person_names.txt.gz`: 4,849 words that are only people's names
-  (robert, michael, jim, surnames such as kubrick).
+- `assets/dict/person_names.txt.gz`: 4,190 words that are only given names or
+  nicknames (robert, michael, jim, sonu).
+- `assets/dict/surnames.txt.gz`: 1,659 words that are only surnames (martinez,
+  sharma, nguyen, kubrick).
 
 A place or name that is also an ordinary word (turkey, rob, grace) stays in
-the core list. All five lists load by default; `WordListOptions(slang: false)`,
-`profanity: false`, `places: false` or `personNames: false` leaves one out, for
+the core list. All six lists load by default; `WordListOptions(slang: false)`,
+`profanity: false`, `places: false`, `personNames: false` or `surnames: false` leaves one out, for
 a future toggle. `assets/dict/blocklist.txt` lists 87 slurs that are removed
 from every list when the game loads.
 
 Every word lives in exactly one file. `python3 tool/dict/check_duplicates.py`
 checks that, and `test/dictionary_test.dart` runs the same check, so the
-web deploy (which runs `flutter test`) fails if a duplicate creeps in. See DESIGN_QUESTIONS.md sections B and C for how the lists were made.
+web deploy (which runs `flutter test`) fails if a duplicate creeps in. See DESIGN_QUESTIONS.md sections B, C and E for how the lists were made.
 
 ## Customizing
 

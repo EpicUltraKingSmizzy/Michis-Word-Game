@@ -74,9 +74,20 @@ void main() {
     for (final w in ['korea', 'paris', 'london', 'riga', 'mumbai', 'georgia']) {
       expect(places, contains(w));
     }
-    for (final w in ['robert', 'michael', 'jim', 'kubrick']) {
+    for (final w in ['robert', 'michael', 'jim', 'sonu', 'byron']) {
       expect(names, contains(w));
     }
+    final surnames = _part(WordListPart.surnames);
+    expect(surnames.length, greaterThan(1500));
+    for (final w in surnames) {
+      expect(az.hasMatch(w), isTrue, reason: w);
+    }
+    // Surname-only words have their own file; a name that is also a given name stays in person_names.
+    for (final w in ['kubrick', 'asimov', 'wei', 'martinez', 'sharma', 'nguyen']) {
+      expect(surnames, contains(w));
+    }
+    expect(surnames.intersection(names), isEmpty);
+    expect(core, contains('gnu'));
     // ...but a word with another meaning stays in the main list.
     for (final w in [
       'turkey',
@@ -132,6 +143,11 @@ void main() {
     expect(core.contains('quiet'), isTrue);
     final noPlaces = dictionaryFromParts(parts, blocklist, options: const WordListOptions(places: false));
     final noNames = dictionaryFromParts(parts, blocklist, options: const WordListOptions(personNames: false));
+    final noSurnames = dictionaryFromParts(parts, blocklist, options: const WordListOptions(surnames: false));
+    expect(noSurnames.contains('martinez'), isFalse);
+    expect(noSurnames.contains('robert'), isTrue);
+    expect(noNames.contains('martinez'), isTrue);
+    expect(core.contains('martinez'), isFalse);
     expect(noPlaces.contains('korea'), isFalse);
     expect(noPlaces.contains('robert'), isTrue);
     expect(noNames.contains('robert'), isFalse);
@@ -142,16 +158,18 @@ void main() {
         _part(WordListPart.slang).length +
         _part(WordListPart.profanity).length +
         _part(WordListPart.places).length +
-        _part(WordListPart.personNames).length;
+        _part(WordListPart.personNames).length +
+        _part(WordListPart.surnames).length;
     expect(realDictionary().wordCount, core.wordCount + extras);
   });
 
   test('the blocklist also applies to the optional lists', () {
-    final d = dictionaryFromParts(bundledWordListParts(), 'droid\nbadass\nkorea\nrobert\n');
+    final d = dictionaryFromParts(bundledWordListParts(), 'droid\nbadass\nkorea\nrobert\nmartinez\n');
     expect(d.contains('droid'), isFalse);
     expect(d.contains('badass'), isFalse);
     expect(d.contains('korea'), isFalse);
     expect(d.contains('robert'), isFalse);
+    expect(d.contains('martinez'), isFalse);
     expect(d.contains('droids'), isTrue);
   });
 

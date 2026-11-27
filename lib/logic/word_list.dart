@@ -10,7 +10,8 @@ import 'dictionary.dart';
 /// The separate word-list files the game dictionary is built from.
 ///
 /// [core] is the main dictionary. [slang], [profanity], [places] (words that
-/// are only place names) and [personNames] (words that are only people's
+/// are only place names), [personNames] (words that are only people's
+/// given names and nicknames) and [surnames] (words that are only family
 /// names) are kept in their own files so a feature can leave them out later
 /// (see [WordListOptions]). A word is in exactly one file;
 /// tool/dict/check_duplicates.py and test/dictionary_test.dart enforce that.
@@ -19,7 +20,8 @@ enum WordListPart {
   slang('assets/dict/slang.txt.gz'),
   profanity('assets/dict/profanity.txt.gz'),
   places('assets/dict/places.txt.gz'),
-  personNames('assets/dict/person_names.txt.gz');
+  personNames('assets/dict/person_names.txt.gz'),
+  surnames('assets/dict/surnames.txt.gz');
 
   const WordListPart(this.asset);
 
@@ -32,18 +34,31 @@ const String blocklistAsset = 'assets/dict/blocklist.txt';
 
 /// Which optional word lists are part of a dictionary. All are on by default.
 class WordListOptions {
-  const WordListOptions({this.slang = true, this.profanity = true, this.places = true, this.personNames = true});
+  const WordListOptions({
+    this.slang = true,
+    this.profanity = true,
+    this.places = true,
+    this.personNames = true,
+    this.surnames = true,
+  });
 
   /// Everything on (the game's normal dictionary).
   static const all = WordListOptions();
 
   /// Only the core dictionary.
-  static const coreOnly = WordListOptions(slang: false, profanity: false, places: false, personNames: false);
+  static const coreOnly = WordListOptions(
+    slang: false,
+    profanity: false,
+    places: false,
+    personNames: false,
+    surnames: false,
+  );
 
   final bool slang;
   final bool profanity;
   final bool places;
   final bool personNames;
+  final bool surnames;
 
   /// The parts to load. [WordListPart.core] is always included.
   Set<WordListPart> get parts => {
@@ -52,6 +67,7 @@ class WordListOptions {
     if (profanity) WordListPart.profanity,
     if (places) WordListPart.places,
     if (personNames) WordListPart.personNames,
+    if (surnames) WordListPart.surnames,
   };
 
   @override
@@ -60,10 +76,11 @@ class WordListOptions {
       other.slang == slang &&
       other.profanity == profanity &&
       other.places == places &&
-      other.personNames == personNames;
+      other.personNames == personNames &&
+      other.surnames == surnames;
 
   @override
-  int get hashCode => Object.hash(slang, profanity, places, personNames);
+  int get hashCode => Object.hash(slang, profanity, places, personNames, surnames);
 }
 
 /// Decodes one gzipped word-list file into its lines.

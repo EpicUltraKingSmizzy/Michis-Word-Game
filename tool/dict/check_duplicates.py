@@ -6,7 +6,7 @@ Fails (exit code 1) if a word appears twice in one file, or in more than one
 of the files below. Every word has to live in exactly one file so that
 switching a list off (WordListOptions) removes exactly that list's words.
 When a word fits more than one list, it goes in the most specific one:
-profanity > slang > places > person_names > words (see DESIGN_QUESTIONS.md).
+profanity > slang > places > person_names > surnames > words (see DESIGN_QUESTIONS.md).
 The same check runs in test/dictionary_test.dart, so CI enforces it.
 """
 import collections, gzip, sys
@@ -17,6 +17,7 @@ FILES = [
     'assets/dict/profanity.txt.gz',
     'assets/dict/places.txt.gz',
     'assets/dict/person_names.txt.gz',
+    'assets/dict/surnames.txt.gz',
 ]
 
 def main():

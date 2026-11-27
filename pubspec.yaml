@@ -75,6 +75,7 @@ flutter:
     - assets/dict/profanity.txt.gz
     - assets/dict/places.txt.gz
     - assets/dict/person_names.txt.gz
+    - assets/dict/surnames.txt.gz
     - assets/dict/blocklist.txt
 
   fonts:
