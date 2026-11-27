@@ -80,10 +80,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
   String? _missedWord;
   bool _missedTraced = false;
 
-  /// "Skip" during the missed-words replay: ends it and moves on.
+  /// How many missed words have been revealed in the list so far.
+  int _missedShown = 0;
+
+  /// "Skip" during the missed-words replay: ends it and reveals every word.
   bool _skipMissed = false;
   final _skipMissedSignal = Completer<void>();
+
+  /// The replay is over: the words can be tapped to see them on the board.
   bool _missedDone = false;
+
+  /// Bumped on every tap of a word, so tapping the same word replays it.
+  int _missedTapCount = 0;
 
   /// True when every 3-5 letter word was found, so [_missed] holds longer ones.
   bool _allShortFound = false;
@@ -200,13 +208,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
       setState(() => _stage = _Stage.missed);
       await _missedReplay();
       if (_disposed || !mounted) return;
-      final skippedMissed = _skipMissed;
       setState(() {
         _missedDone = true;
+        _missedShown = _missed.length;
         _missedWord = null;
       });
-      // Same as the scoring replay: after a Skip, go straight on.
-      if (!skippedMissed && !await _waitTap()) return;
+      // Now the words can be tapped, so this page moves on with its own
+      // Continue button (even after a Skip).
+      if (!await _waitTap()) return;
       if (!mounted) return;
     }
     setState(() => _stage = _Stage.highlights);
@@ -248,16 +257,34 @@ class _ResultsScreenState extends State<ResultsScreen> {
   Future<void> _missedReplay() async {
     // Let Michi's bubble pop up before the first word.
     if (!await _waitMissed(900)) return;
-    for (final w in _missed) {
+    for (var i = 0; i < _missed.length; i++) {
+      final w = _missed[i];
       setState(() {
         _missedWord = w;
         _missedTraced = false;
+        _missedShown = i + 1;
       });
       final step = replayStepDuration(WordEntry(word: w, path: _solved[w]!, finders: [myId]));
       if (!await _waitMissed(step.inMilliseconds - 400)) return;
       setState(() => _missedTraced = true);
       if (!await _waitMissed(400)) return;
     }
+  }
+
+  /// Tapping a word in the missed list (after the replay) traces it again.
+  void _showMissed(String w) {
+    if (!_missedDone) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _missedWord = w;
+      _missedTraced = false;
+      _missedTapCount++;
+    });
+    final tap = _missedTapCount;
+    final step = replayStepDuration(WordEntry(word: w, path: _solved[w]!, finders: [myId]));
+    Future<void>.delayed(Duration(milliseconds: step.inMilliseconds - 400), () {
+      if (mounted && !_disposed && tap == _missedTapCount) setState(() => _missedTraced = true);
+    });
   }
 
   void _finish() {
@@ -326,14 +353,27 @@ class _ResultsScreenState extends State<ResultsScreen> {
               Expanded(
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
-                  onTap: _tapWait == null ? null : _advance,
+                  // On the missed-words page taps pick words; it has a Continue button.
+                  onTap: _tapWait == null || _stage == _Stage.missed ? null : _advance,
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 350),
                     child: KeyedSubtree(key: ValueKey('stage-${_stage.name}'), child: body),
                   ),
                 ),
               ),
-              if (_tapWait != null)
+              if (_tapWait != null && _stage == _Stage.missed)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
+                  child: ChunkyButton(
+                    key: const ValueKey('missed-continue'),
+                    label: 'Continue',
+                    icon: Icons.arrow_forward_rounded,
+                    height: 52,
+                    fontSize: 22,
+                    onPressed: _advance,
+                  ),
+                )
+              else if (_tapWait != null)
                 GestureDetector(
                   onTap: _advance,
                   child: Padding(
@@ -480,43 +520,71 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final w = _missedWord;
     return LayoutBuilder(builder: (context, c) {
       final gridSide = min(c.maxWidth - 120, c.maxHeight * 0.42).clamp(160.0, 340.0);
+      // On tall screens keep the board exactly where it was during scoring;
+      // on short ones give that space to the word list.
+      final roomy = c.maxHeight >= 600;
       return Column(
         children: [
           const SizedBox(height: 8),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: [
-                // Michi pops up with the speech bubble.
-                TweenAnimationBuilder<double>(
-                  key: const ValueKey('missed-bubble'),
-                  tween: Tween(begin: 0, end: 1),
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeOutBack,
-                  builder: (_, v, child) => Opacity(
-                    opacity: v.clamp(0, 1),
-                    child: Transform.translate(
-                      offset: Offset(0, 40 * (1 - v)),
-                      child: Transform.scale(scale: 0.7 + 0.3 * v, alignment: Alignment.bottomLeft, child: child),
-                    ),
-                  ),
-                  child: MascotBubble(text: text, faceSize: 64),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            // Michi pops up with the speech bubble.
+            child: TweenAnimationBuilder<double>(
+              key: const ValueKey('missed-bubble'),
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeOutBack,
+              builder: (_, v, child) => Opacity(
+                opacity: v.clamp(0, 1),
+                child: Transform.translate(
+                  offset: Offset(0, 40 * (1 - v)),
+                  child: Transform.scale(scale: 0.7 + 0.3 * v, alignment: Alignment.bottomLeft, child: child),
                 ),
-              ],
+              ),
+              child: MascotBubble(text: text, faceSize: 64),
             ),
           ),
-          SizedBox(
-            height: 52,
-            child: w == null
-                ? null
-                : Center(child: LabelPill(w.toUpperCase(), color: MwgColors.silver, fontSize: 22)),
+          const SizedBox(height: 10),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                children: [
+                  Wrap(
+                    key: const ValueKey('missed-list'),
+                    alignment: WrapAlignment.center,
+                    spacing: roomy ? 8 : 6,
+                    runSpacing: roomy ? 8 : 6,
+                    children: [
+                      for (var i = 0; i < _missedShown && i < n; i++)
+                        _MissedChip(
+                          key: ValueKey('missed-chip-${_missed[i]}'),
+                          word: _missed[i],
+                          active: _missed[i] == w,
+                          small: !roomy,
+                          onTap: _missedDone ? () => _showMissed(_missed[i]) : null,
+                        ),
+                    ],
+                  ),
+                  if (_missedDone) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      w == null ? 'Tap a word to see it on the board' : 'Tap another word to see where it was',
+                      textAlign: TextAlign.center,
+                      style: uiText(14, weight: FontWeight.w600, color: Colors.white70),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
+          const SizedBox(height: 8),
           SizedBox(
             width: gridSide,
             child: w == null
                 ? BoardView(board: r.board, looks: const {}, line: const [])
                 : _TracePath(
-                    key: ValueKey('missed-trace-$w'),
+                    key: ValueKey('missed-trace-$w-$_missedTapCount'),
                     board: r.board,
                     path: _solved[w]!,
                     done: _missedTraced,
@@ -533,15 +601,17 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   ),
           ),
           const SizedBox(height: 10),
-          // Keeps the board where it was during the scoring replay.
-          const Visibility(
-            visible: false,
-            maintainSize: true,
-            maintainAnimation: true,
-            maintainState: true,
-            child: _RulesPanel(),
-          ),
-          const SizedBox(height: 10),
+          if (roomy) ...[
+            // Keeps the board where it was during the scoring replay.
+            const Visibility(
+              visible: false,
+              maintainSize: true,
+              maintainAnimation: true,
+              maintainState: true,
+              child: _RulesPanel(),
+            ),
+            const SizedBox(height: 10),
+          ],
         ],
       );
     });
@@ -797,6 +867,54 @@ class _ScoreBadge extends StatelessWidget {
           border: Border.all(color: MwgColors.tile, width: 2.5),
         ),
         child: Text(hidden ? '???' : '$score', style: uiText(20, weight: FontWeight.w700, color: MwgColors.tile)),
+      ),
+    );
+  }
+}
+
+/// A missed word in the list above the board. It pops in when revealed and
+/// stands out while it is the one shown on the board.
+class _MissedChip extends StatelessWidget {
+  const _MissedChip({super.key, required this.word, required this.active, this.small = false, this.onTap});
+  final String word;
+  final bool active;
+
+  /// Smaller text and padding for short screens.
+  final bool small;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutBack,
+      builder: (_, v, child) => Opacity(
+        opacity: v.clamp(0, 1),
+        child: Transform.scale(scale: 0.6 + 0.4 * v, child: child),
+      ),
+      child: Semantics(
+        button: onTap != null,
+        label: word,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: AnimatedScale(
+            scale: active ? 1.08 : 1.0,
+            duration: const Duration(milliseconds: 150),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: EdgeInsets.symmetric(horizontal: small ? 10 : 14, vertical: small ? 3 : 5),
+              decoration: BoxDecoration(
+                color: active ? MwgColors.silverLine : MwgColors.silver,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: active ? Colors.white : MwgColors.tile, width: active ? 3 : 2.5),
+                boxShadow: active ? const [BoxShadow(color: Color(0x66FFFFFF), blurRadius: 10)] : null,
+              ),
+              child: Text(word.toUpperCase(), style: uiText(small ? 15 : 18, weight: FontWeight.w700, color: MwgColors.tile)),
+            ),
+          ),
+        ),
       ),
     );
   }

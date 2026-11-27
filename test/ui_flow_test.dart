@@ -130,8 +130,15 @@ void main() {
     return (host, r, mine);
   }
 
-  testWidgets('solo round: missed words are traced on the board after scoring, then the highlights',
-      (tester) async {
+  Finder missedChips() => find.byWidgetPredicate(
+      (w) => w.key is ValueKey<String> && (w.key as ValueKey<String>).value.startsWith('missed-chip-'));
+
+  List<String> chipWords(WidgetTester tester) => [
+        for (final w in tester.widgetList(missedChips()))
+          (w.key as ValueKey<String>).value.substring('missed-chip-'.length),
+      ];
+
+  testWidgets('solo round: missed words are traced on the board and listed one by one', (tester) async {
     final (host, r, mine) = await soloRound(tester);
     await pumpResults(tester, host, r);
     await tester.pump(const Duration(milliseconds: 300));
@@ -140,32 +147,51 @@ void main() {
     expect(stage('missed'), findsOneWidget);
     expect(find.text('Here are 10 words you missed!'), findsOneWidget);
     expect(find.byKey(const ValueKey('skip-missed')), findsOneWidget);
-    // Watch the whole replay: no found word and never the longest word.
-    final shown = <String>{};
-    for (var i = 0; i < 80 && find.text('Tap to continue').evaluate().isEmpty; i++) {
+    expect(missedChips(), findsNothing, reason: 'the list starts empty');
+    // The list grows one word at a time as each word is traced.
+    var last = 0;
+    for (var i = 0; i < 80 && find.byKey(const ValueKey('missed-continue')).evaluate().isEmpty; i++) {
       await tester.pump(const Duration(milliseconds: 250));
-      for (final t in tester.widgetList<Text>(find.byType(Text))) {
-        final d = t.data;
-        if (d != null && RegExp(r'^[A-Z]{3,}$').hasMatch(d)) shown.add(d);
-      }
+      final n = missedChips().evaluate().length;
+      expect(n - last, lessThanOrEqualTo(1));
+      last = n;
     }
-    expect(stage('missed'), findsOneWidget, reason: 'waits for a tap after the replay');
+    expect(find.byKey(const ValueKey('missed-continue')), findsOneWidget);
     expect(find.byKey(const ValueKey('skip-missed')), findsNothing);
-    final missedShown = shown.where((w) => w.length > 1 && !r.board.tiles.contains(w)).toSet();
-    expect(missedShown.length, greaterThanOrEqualTo(10));
+    final words = chipWords(tester);
+    expect(words.length, 10);
     for (final w in mine) {
-      expect(missedShown.contains(w.toUpperCase()), isFalse, reason: 'found words are not "missed"');
+      expect(words.contains(w), isFalse, reason: 'found words are not "missed"');
     }
-    expect(missedShown.contains(r.longest!.word.toUpperCase()), isFalse, reason: 'longest word has its own page');
+    expect(words.contains(r.longest!.word), isFalse, reason: 'longest word has its own page');
     expect(find.textContaining(RegExp(r'^[A-Z]+ ?\+\d')), findsNothing, reason: 'no points for missed words');
-    await tapThrough(tester);
+
+    // Tapping the board or empty space doesn't move on any more.
+    await tester.tapAt(const Offset(200, 700));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(stage('missed'), findsOneWidget);
+
+    // Tapping a word traces it on the board; tapping another switches.
+    await tester.tap(find.byKey(ValueKey('missed-chip-${words[2]}')));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(ValueKey('missed-trace-${words[2]}-1')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.tap(find.byKey(ValueKey('missed-chip-${words[5]}')));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(ValueKey('missed-trace-${words[5]}-2')), findsOneWidget);
+    expect(find.byKey(ValueKey('missed-trace-${words[2]}-1')), findsNothing);
+    await tester.pump(const Duration(seconds: 2));
+    expect(stage('missed'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('missed-continue')));
+    await tester.pump(const Duration(milliseconds: 500));
     expect(stage('highlights'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 5));
     await tester.runAsync(host.leave);
   });
 
-  testWidgets('solo round: Skip during the missed words goes straight to the highlights', (tester) async {
+  testWidgets('solo round: Skip during the missed words reveals them all, ready to tap', (tester) async {
     final (host, r, _) = await soloRound(tester);
     await pumpResults(tester, host, r);
     await tester.pump(const Duration(milliseconds: 300));
@@ -174,7 +200,28 @@ void main() {
     expect(stage('missed'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('skip-missed')));
     await tester.pump(const Duration(milliseconds: 500));
+    expect(stage('missed'), findsOneWidget);
+    expect(missedChips(), findsNWidgets(10));
+    expect(find.byKey(const ValueKey('missed-continue')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('missed-continue')));
+    await tester.pump(const Duration(milliseconds: 500));
     expect(stage('highlights'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 5));
+    await tester.runAsync(host.leave);
+  });
+
+  testWidgets('solo round: the missed words page fits a small phone', (tester) async {
+    final (host, r, _) = await soloRound(tester);
+    await tester.binding.setSurfaceSize(const Size(320, 568));
+    await tester.pumpWidget(MaterialApp(home: ResultsScreen(app: AppState(), session: host, results: r)));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const ValueKey('skip-scoring')));
+    await tester.pump(const Duration(milliseconds: 1500));
+    await tester.tap(find.byKey(const ValueKey('skip-missed')));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(tester.takeException(), isNull, reason: 'no overflow');
+    expect(find.byKey(const ValueKey('missed-continue')), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 5));
     await tester.runAsync(host.leave);
