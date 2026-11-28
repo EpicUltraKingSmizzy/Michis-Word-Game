@@ -195,6 +195,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1500));
     expect(stage('missed'), findsOneWidget);
     expect(find.textContaining('Here are ${expected.length} words you missed!'), findsOneWidget);
+    expect(find.textContaining('would have beaten'), findsNothing);
+    expect(find.textContaining('would have scored'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('skip-missed')));
     await tester.pump(const Duration(milliseconds: 500));
     for (final w in expected) {

@@ -632,8 +632,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     if (r.settings.longestOnly) {
       text = n == 0
           ? 'You found the best word on the board! Nothing could beat ${counted?.toUpperCase() ?? 'it'}. Amazing!'
-          : 'Here ${n == 1 ? 'is' : 'are'} $words you missed! '
-              '${counted == null ? 'Any of them would have scored.' : '${n == 1 ? 'It' : 'Each one'} would have beaten ${counted.toUpperCase()}.'}';
+          : 'Here ${n == 1 ? 'is' : 'are'} $words you missed!';
     } else {
       text = _allShortFound
           ? 'You found every short word! Here ${n == 1 ? 'is 1 longer word' : 'are $n longer words'} you missed!'
