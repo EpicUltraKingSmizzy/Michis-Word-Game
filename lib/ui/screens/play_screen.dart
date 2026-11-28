@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 
+import '../../logic/longest_word.dart';
 import '../../logic/models.dart';
 import '../../logic/path_validation.dart';
 import '../../state/app_state.dart';
@@ -68,7 +69,10 @@ class _PlayScreenState extends State<PlayScreen> {
   }
 
   void _showFound() {
-    final words = widget.session.foundOrder.reversed.toList();
+    final s = widget.session;
+    final words = s.foundOrder.reversed.toList();
+    final longestOnly = s.roundSettings.longestOnly;
+    final counted = longestOnly ? pickCountedWord(s.foundOrder) : null;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF1B2A6B),
@@ -92,7 +96,12 @@ class _PlayScreenState extends State<PlayScreen> {
                       runSpacing: 8,
                       children: [
                         for (final w in words)
-                          LabelPill('${w.toUpperCase()} +${wordPoints(w)}', color: MwgColors.mint, fontSize: 15),
+                          if (!longestOnly)
+                            LabelPill('${w.toUpperCase()} +${wordPoints(w)}', color: MwgColors.mint, fontSize: 15)
+                          else if (w == counted)
+                            LabelPill('${w.toUpperCase()} +${wordPoints(w)}', color: MwgColors.gold, fontSize: 15)
+                          else
+                            LabelPill(w.toUpperCase(), color: const Color(0xFF9AA3B5), fontSize: 15),
                       ],
                     ),
                   ),
@@ -111,7 +120,12 @@ class _PlayScreenState extends State<PlayScreen> {
     _reportGridArea();
     final playing = s.phase == SessionPhase.playing;
     final timesUp = s.phase == SessionPhase.waitingForResults;
-    final points = s.foundWords.fold<int>(0, (sum, w) => sum + wordPoints(w));
+    final longestOnly = s.roundSettings.longestOnly;
+    // "Longest word only": the word that will count, and only its points.
+    final counted = longestOnly ? pickCountedWord(s.foundOrder) : null;
+    final points = longestOnly
+        ? (counted == null ? 0 : wordPoints(counted))
+        : s.foundWords.fold<int>(0, (sum, w) => sum + wordPoints(w));
 
     final (pillText, pillColor, pillTextColor) = switch (_feedback) {
       SubmissionResult.added => ('Added', MwgColors.mint, MwgColors.tile),
@@ -151,6 +165,10 @@ class _PlayScreenState extends State<PlayScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+              if (longestOnly) ...[
+                _LongestWordBanner(word: counted),
+                const SizedBox(height: 6),
+              ],
               SizedBox(
                 height: 46,
                 child: AnimatedSwitcher(
@@ -226,6 +244,44 @@ class _PlayScreenState extends State<PlayScreen> {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// "Longest word only": the player's current counted word, above the grid.
+class _LongestWordBanner extends StatelessWidget {
+  const _LongestWordBanner({required this.word});
+  final String? word;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = word;
+    return Column(
+      key: const ValueKey('longest-banner'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(w == null ? 'Longest word only' : 'Your longest word',
+            style: uiText(14, weight: FontWeight.w600, color: Colors.white70)),
+        const SizedBox(height: 4),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          transitionBuilder: (c, a) => ScaleTransition(scale: a, child: c),
+          child: w == null
+              ? LabelPill('Find a word!', key: const ValueKey('none'), color: const Color(0x55000000), textColor: Colors.white70, fontSize: 18)
+              : Container(
+                  key: ValueKey(w),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: MwgColors.gold,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: const [BoxShadow(color: Color(0x88FFD34E), blurRadius: 14)],
+                  ),
+                  child: Text('${w.toUpperCase()}  +${wordPoints(w)}',
+                      style: uiText(20, weight: FontWeight.w700, color: MwgColors.tile)),
+                ),
+        ),
+      ],
     );
   }
 }

@@ -8,12 +8,14 @@ class GameSettings {
     this.gridSize = 4,
     this.minWordLength = 3,
     this.durationSeconds = 120,
+    this.longestOnly = false,
   });
 
   factory GameSettings.fromJson(Map<String, dynamic> j) => GameSettings(
         gridSize: j['gridSize'] as int? ?? 4,
         minWordLength: j['minWordLength'] as int? ?? 3,
         durationSeconds: j['durationSeconds'] as int? ?? 120,
+        longestOnly: j['longestOnly'] as bool? ?? false,
       );
 
   static const gridSizes = [4, 5, 6];
@@ -26,6 +28,11 @@ class GameSettings {
   final int minWordLength;
   final int durationSeconds;
 
+  /// "Longest word only": every word still counts as found, but only each
+  /// player's best word is scored (see lib/logic/longest_word.dart). Words
+  /// of 3+ letters are accepted in this mode.
+  final bool longestOnly;
+
   String get gridLabel => '${gridSize}x$gridSize';
   String get gridName => switch (gridSize) { 4 => 'Classic', 5 => 'Big', _ => 'Super Big' };
 
@@ -34,17 +41,19 @@ class GameSettings {
     return '$m:${s.toString().padLeft(2, '0')}';
   }
 
-  GameSettings copyWith({int? gridSize, int? minWordLength, int? durationSeconds}) =>
+  GameSettings copyWith({int? gridSize, int? minWordLength, int? durationSeconds, bool? longestOnly}) =>
       GameSettings(
         gridSize: gridSize ?? this.gridSize,
         minWordLength: minWordLength ?? this.minWordLength,
         durationSeconds: durationSeconds ?? this.durationSeconds,
+        longestOnly: longestOnly ?? this.longestOnly,
       );
 
   Map<String, dynamic> toJson() => {
         'gridSize': gridSize,
         'minWordLength': minWordLength,
         'durationSeconds': durationSeconds,
+        if (longestOnly) 'longestOnly': true,
       };
 
   @override
@@ -52,10 +61,11 @@ class GameSettings {
       other is GameSettings &&
       other.gridSize == gridSize &&
       other.minWordLength == minWordLength &&
-      other.durationSeconds == durationSeconds;
+      other.durationSeconds == durationSeconds &&
+      other.longestOnly == longestOnly;
 
   @override
-  int get hashCode => Object.hash(gridSize, minWordLength, durationSeconds);
+  int get hashCode => Object.hash(gridSize, minWordLength, durationSeconds, longestOnly);
 }
 
 class PlayerInfo {
@@ -102,12 +112,14 @@ class WordEntry {
     required this.word,
     required this.path,
     required this.finders,
+    this.noBonus = false,
   });
 
   factory WordEntry.fromJson(Map<String, dynamic> j) => WordEntry(
         word: j['w'] as String,
         path: (j['p'] as List).cast<int>(),
         finders: (j['f'] as List).cast<String>(),
+        noBonus: j['nb'] as bool? ?? false,
       );
 
   final String word;
@@ -118,13 +130,20 @@ class WordEntry {
   /// Player ids, earliest finder first.
   final List<String> finders;
 
+  /// No "unique word" double ("Longest word only" rounds).
+  final bool noBonus;
+
   bool get isUnique => finders.length == 1;
+
+  /// Whether the unique-word double applies.
+  bool get isDoubled => isUnique && !noBonus;
   int get basePoints => wordPoints(word);
 
-  /// Points each finder earns (doubled when only one player found it).
-  int get pointsEach => isUnique ? basePoints * 2 : basePoints;
+  /// Points each finder earns (doubled when only one player found it,
+  /// unless [noBonus]).
+  int get pointsEach => isDoubled ? basePoints * 2 : basePoints;
 
-  Map<String, dynamic> toJson() => {'w': word, 'p': path, 'f': finders};
+  Map<String, dynamic> toJson() => {'w': word, 'p': path, 'f': finders, if (noBonus) 'nb': true};
 }
 
 /// Letters minus two (a 3-letter word is worth 1 point).
@@ -136,6 +155,7 @@ class PlayerResult {
     required this.words,
     required this.score,
     required this.uniqueWords,
+    this.countedWord,
   });
 
   factory PlayerResult.fromJson(Map<String, dynamic> j) => PlayerResult(
@@ -143,6 +163,7 @@ class PlayerResult {
         words: (j['words'] as List).cast<String>(),
         score: j['score'] as int,
         uniqueWords: (j['unique'] as List).cast<String>(),
+        countedWord: j['counted'] as String?,
       );
 
   final PlayerInfo player;
@@ -150,10 +171,18 @@ class PlayerResult {
   final int score;
   final List<String> uniqueWords;
 
+  /// "Longest word only" rounds: the one word that was scored.
+  final String? countedWord;
+
   int get wordCount => words.length;
 
-  Map<String, dynamic> toJson() =>
-      {'player': player.toJson(), 'words': words, 'score': score, 'unique': uniqueWords};
+  Map<String, dynamic> toJson() => {
+        'player': player.toJson(),
+        'words': words,
+        'score': score,
+        'unique': uniqueWords,
+        if (countedWord != null) 'counted': countedWord,
+      };
 }
 
 enum HighlightKind { player, group }
@@ -221,6 +250,33 @@ class LongestWordInfo {
       };
 }
 
+/// "Longest word only" tie-breaker between players tied for the top score:
+/// their words' letters are scored one by one (see `letterPoints`).
+class TieBreak {
+  const TieBreak({required this.playerIds, required this.words, required this.winnerIds, required this.sameWord});
+
+  factory TieBreak.fromJson(Map<String, dynamic> j) => TieBreak(
+        playerIds: (j['ids'] as List).cast<String>(),
+        words: (j['words'] as List).cast<String>(),
+        winnerIds: (j['winners'] as List).cast<String>(),
+        sameWord: j['same'] as bool? ?? false,
+      );
+
+  /// The tied players, in the order they are shown.
+  final List<String> playerIds;
+
+  /// Each tied player's counted word (same order as [playerIds]).
+  final List<String> words;
+
+  /// Who won the tie-breaker (more than one: still a tie).
+  final List<String> winnerIds;
+
+  /// Every tied player had the very same word, so letters weren't scored.
+  final bool sameWord;
+
+  Map<String, dynamic> toJson() => {'ids': playerIds, 'words': words, 'winners': winnerIds, 'same': sameWord};
+}
+
 class RoundResults {
   const RoundResults({
     required this.settings,
@@ -230,6 +286,7 @@ class RoundResults {
     required this.highlights,
     required this.longest,
     required this.totalPossibleWords,
+    this.tieBreak,
   });
 
   factory RoundResults.fromJson(Map<String, dynamic> j) => RoundResults(
@@ -248,6 +305,7 @@ class RoundResults {
             ? null
             : LongestWordInfo.fromJson(j['longest'] as Map<String, dynamic>),
         totalPossibleWords: j['total'] as int? ?? 0,
+        tieBreak: j['tieBreak'] == null ? null : TieBreak.fromJson(j['tieBreak'] as Map<String, dynamic>),
       );
 
   final GameSettings settings;
@@ -262,6 +320,9 @@ class RoundResults {
   final LongestWordInfo? longest;
   final int totalPossibleWords;
 
+  /// Set when players tied for the top score in a "Longest word only" round.
+  final TieBreak? tieBreak;
+
   PlayerResult? playerById(String id) {
     for (final p in players) {
       if (p.player.id == id) return p;
@@ -269,11 +330,16 @@ class RoundResults {
     return null;
   }
 
-  /// Players with the top score (more than one means a tie).
+  /// Players with the top score (more than one means a tie). After a
+  /// tie-breaker, only its winners (plus any top scorer it couldn't compare,
+  /// such as a challenge friend whose link carried only a score).
   List<PlayerResult> get winners {
     if (players.isEmpty) return const [];
     final top = players.map((p) => p.score).reduce((a, b) => a > b ? a : b);
-    return players.where((p) => p.score == top).toList();
+    final tops = players.where((p) => p.score == top).toList();
+    final tb = tieBreak;
+    if (tb == null) return tops;
+    return tops.where((p) => tb.winnerIds.contains(p.player.id) || !tb.playerIds.contains(p.player.id)).toList();
   }
 
   Map<String, dynamic> toJson() => {
@@ -284,5 +350,6 @@ class RoundResults {
         'highlights': highlights.map((h) => h.toJson()).toList(),
         'longest': longest?.toJson(),
         'total': totalPossibleWords,
+        if (tieBreak != null) 'tieBreak': tieBreak!.toJson(),
       };
 }

@@ -93,14 +93,32 @@ class HostScreen extends StatelessWidget {
                       Expanded(
                         child: _ChoiceChip(
                           label: '$m letters',
-                          selected: s.minWordLength == m,
-                          onTap: () => session.updateSettings(s.copyWith(minWordLength: m)),
+                          selected: !s.longestOnly && s.minWordLength == m,
+                          // Picking a length turns "Longest word only" off.
+                          onTap: () => session.updateSettings(s.copyWith(minWordLength: m, longestOnly: false)),
                         ),
                       ),
                       if (m != GameSettings.minWordLengths.last) const SizedBox(width: 10),
                     ],
                   ],
                 ),
+                const SizedBox(height: 10),
+                _ChoiceChip(
+                  key: const ValueKey('longest-only'),
+                  label: 'Longest word only',
+                  selected: s.longestOnly,
+                  // Any word of 3+ letters can be found in this mode.
+                  onTap: () => session.updateSettings(s.copyWith(longestOnly: true, minWordLength: 3)),
+                ),
+                if (s.longestOnly) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Only your longest word will count towards your score.',
+                    key: const ValueKey('longest-only-hint'),
+                    textAlign: TextAlign.center,
+                    style: uiText(15, weight: FontWeight.w600, color: MwgColors.gold),
+                  ),
+                ],
                 const SizedBox(height: 18),
                 Row(
                   children: [
@@ -248,7 +266,7 @@ class _GridSizeTile extends StatelessWidget {
 }
 
 class _ChoiceChip extends StatelessWidget {
-  const _ChoiceChip({required this.label, required this.selected, required this.onTap});
+  const _ChoiceChip({super.key, required this.label, required this.selected, required this.onTap});
   final String label;
   final bool selected;
   final VoidCallback onTap;

@@ -9,6 +9,7 @@ List<Highlight> computeHighlights({
   required List<PlayerResult> players,
   required List<WordEntry> entries,
   required int totalPossible,
+  bool longestOnly = false,
 }) {
   final out = <Highlight>[];
   if (players.isEmpty) return out;
@@ -59,18 +60,21 @@ List<Highlight> computeHighlights({
       playerIds: ids.toList(),
     ));
 
-    // Highest-scoring single word.
-    final bestPts = entries.map((e) => e.pointsEach).reduce((a, b) => a > b ? a : b);
-    final best = entries.where((e) => e.pointsEach == bestPts).toList()
-      ..sort((a, b) => a.word.compareTo(b.word));
-    final top = best.first;
-    final finder = players.firstWhere((p) => p.player.id == top.finders.first);
-    out.add(Highlight(
-      kind: HighlightKind.player,
-      title: 'Jackpot Word',
-      detail: '${top.word.toUpperCase()} scored +$bestPts for ${finder.player.name}',
-      playerIds: top.finders,
-    ));
+    // Highest-scoring single word (not in "Longest word only" rounds, where
+    // only one word per player scores and the replay already shows it).
+    if (!longestOnly) {
+      final bestPts = entries.map((e) => e.pointsEach).reduce((a, b) => a > b ? a : b);
+      final best = entries.where((e) => e.pointsEach == bestPts).toList()
+        ..sort((a, b) => a.word.compareTo(b.word));
+      final top = best.first;
+      final finder = players.firstWhere((p) => p.player.id == top.finders.first);
+      out.add(Highlight(
+        kind: HighlightKind.player,
+        title: 'Jackpot Word',
+        detail: '${top.word.toUpperCase()} scored +$bestPts for ${finder.player.name}',
+        playerIds: top.finders,
+      ));
+    }
   }
 
   // Group milestones.

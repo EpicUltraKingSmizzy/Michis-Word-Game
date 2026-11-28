@@ -44,14 +44,17 @@ class ProfileStore {
     await _prefs.setInt(_kAvatar, avatar);
   }
 
-  String _configKey(GameSettings s) =>
-      'best_${s.gridSize}_${s.durationSeconds}_${s.minWordLength}';
+  String _configKey(GameSettings s) => s.longestOnly
+      ? 'best_${s.gridSize}_${s.durationSeconds}_longest'
+      : 'best_${s.gridSize}_${s.durationSeconds}_${s.minWordLength}';
 
   /// Records a round score. Returns which records it beat.
   Future<PersonalRecord> recordScore(GameSettings settings, int score) async {
     final prevBest = _prefs.getInt(_kBest);
     final prevConfig = _prefs.getInt(_configKey(settings));
-    final overall = score > 0 && (prevBest == null || score > prevBest);
+    // "Longest word only" scores are far smaller, so they only count towards
+    // their own best (per grid size and time), never the overall best.
+    final overall = !settings.longestOnly && score > 0 && (prevBest == null || score > prevBest);
     final config = score > 0 && (prevConfig == null || score > prevConfig);
     if (overall) await _prefs.setInt(_kBest, score);
     if (config) await _prefs.setInt(_configKey(settings), score);

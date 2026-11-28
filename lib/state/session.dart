@@ -1108,6 +1108,7 @@ class SoloSession extends GameSession {
         highlights: r.highlights,
         longest: r.longest,
         totalPossibleWords: r.totalPossibleWords,
+        tieBreak: r.tieBreak,
       );
     }
     showResults(r);

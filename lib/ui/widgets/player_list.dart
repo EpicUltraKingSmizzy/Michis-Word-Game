@@ -107,7 +107,9 @@ class SettingsSummary extends StatelessWidget {
             children: [
               chip(Icons.grid_view_rounded, settings.gridLabel, settings.gridName),
               const SizedBox(width: 8),
-              chip(Icons.short_text_rounded, '${settings.minWordLength}+', 'letters'),
+              settings.longestOnly
+                  ? chip(Icons.emoji_events_rounded, 'Longest', 'word only')
+                  : chip(Icons.short_text_rounded, '${settings.minWordLength}+', 'letters'),
               const SizedBox(width: 8),
               chip(Icons.hourglass_bottom_rounded, settings.durationLabel, 'minutes'),
             ],

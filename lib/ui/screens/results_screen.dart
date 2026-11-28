@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../logic/board.dart';
 import '../../logic/challenge.dart';
+import '../../logic/longest_word.dart';
 import '../../logic/missed_words.dart';
 import '../../logic/models.dart';
 import '../../logic/replay_order.dart';
@@ -22,7 +23,7 @@ import '../widgets/common.dart';
 import '../widgets/mascot.dart';
 import 'play_screen.dart' show TimesUpBanner;
 
-enum _Stage { intro, replay, missed, highlights, longest, winner }
+enum _Stage { intro, replay, tieBreak, missed, highlights, longest, winner }
 
 /// End of round: word counts, word-by-word scoring replay, (solo rounds only)
 /// a replay of some words the player missed, highlights, the longest word on
@@ -96,9 +97,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
   /// True when every 3-5 letter word was found, so [_missed] holds longer ones.
   bool _allShortFound = false;
 
+  /// Show the missed-words page: solo rounds with missed words, and every
+  /// solo "Longest word only" round (with nothing better, Michi congratulates).
+  bool get _showMissedPage => _isSoloRound && (_missed.isNotEmpty || r.settings.longestOnly);
+
   List<String> _computeMissed() {
     if (!_isSoloRound) return const [];
     final solved = _solved = solveBoard(r.board, widget.session.dictionary, minWordLength: r.settings.minWordLength);
+    if (r.settings.longestOnly) {
+      // Only words that would have beaten the counted word, best first. The
+      // longest word isn't held back here: longer words are the point.
+      return pickBetterMissedWords(solved: solved.keys, counted: r.players.first.countedWord);
+    }
     final found = r.players.first.words.map((w) => w.toLowerCase()).toSet();
     _allShortFound = !solved.keys.any((w) =>
         w.length >= MissedWordsTuning.shortMin && w.length <= MissedWordsTuning.shortMax && !found.contains(w));
@@ -204,7 +214,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
     // final scores are on screen already, so go straight on.
     if (!skipped && !await _waitTap()) return;
     if (!mounted) return;
-    if (_missed.isNotEmpty) {
+    if (r.tieBreak != null) {
+      setState(() => _stage = _Stage.tieBreak);
+      await _tieBreakAnim();
+      if (!await _waitTap()) return;
+      if (!mounted) return;
+    }
+    if (_showMissedPage) {
       setState(() => _stage = _Stage.missed);
       await _missedReplay();
       if (_disposed || !mounted) return;
@@ -271,6 +287,33 @@ class _ResultsScreenState extends State<ResultsScreen> {
     }
   }
 
+  /// Tie-breaker: how many letters have been scored, and whether it's over.
+  int _tbLetters = 0;
+  bool _tbDone = false;
+
+  Future<bool> _pause(int ms) async {
+    await Future<void>.delayed(Duration(milliseconds: ms));
+    return mounted && !_disposed;
+  }
+
+  /// Shows the tied words, then scores their letters one column at a time
+  /// (or says "Same Word!"), then the result.
+  Future<void> _tieBreakAnim() async {
+    final tb = r.tieBreak!;
+    if (!await _pause(1200)) return;
+    if (!tb.sameWord) {
+      final longest = tb.words.map((w) => w.length).reduce(max);
+      for (var i = 0; i < longest; i++) {
+        setState(() => _tbLetters = i + 1);
+        HapticFeedback.selectionClick();
+        if (!await _pause(420)) return;
+      }
+      if (!await _pause(400)) return;
+    }
+    setState(() => _tbDone = true);
+    if (tb.winnerIds.contains(myId)) HapticFeedback.heavyImpact();
+  }
+
   /// Tapping a word in the missed list (after the replay) traces it again.
   void _showMissed(String w) {
     if (!_missedDone) return;
@@ -306,6 +349,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final body = switch (_stage) {
       _Stage.intro => _intro(),
       _Stage.replay => _replay(),
+      _Stage.tieBreak => _tieBreak(),
       _Stage.missed => _missedWords(),
       _Stage.highlights => _highlights(),
       _Stage.longest => _longest(),
@@ -327,7 +371,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                       child: const Icon(Icons.close_rounded),
                     ),
                     const Spacer(),
-                    if (_stage == _Stage.missed && !_missedDone)
+                    if (_stage == _Stage.missed && !_missedDone && _missed.isNotEmpty)
                       PillButton(
                         key: const ValueKey('skip-missed'),
                         tooltip: 'Skip the missed words',
@@ -465,8 +509,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       LabelPill('${e.word.toUpperCase()} +${e.pointsEach}',
-                          color: e.isUnique ? MwgColors.gold : MwgColors.mint, fontSize: 22),
-                      if (e.isUnique) ...[
+                          color: e.isDoubled ? MwgColors.gold : MwgColors.mint, fontSize: 22),
+                      if (e.isDoubled) ...[
                         const SizedBox(width: 8),
                         LabelPill('x2 UNIQUE', color: MwgColors.pink, fontSize: 14),
                       ],
@@ -495,7 +539,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   ),
           ),
           const SizedBox(height: 10),
-          const _RulesPanel(),
+          _RulesPanel(longestOnly: r.settings.longestOnly),
           const SizedBox(height: 10),
         ],
       );
@@ -510,13 +554,91 @@ class _ResultsScreenState extends State<ResultsScreen> {
     return ids.length == 1 ? ids.first : null;
   }
 
+  // ---- Stage: tie-breaker ("Longest word only") ----
+  Widget _tieBreak() {
+    final tb = r.tieBreak!;
+    final tiedScore = r.playerById(tb.playerIds.first)?.score ?? 0;
+    final names = [for (final id in tb.winnerIds) r.playerById(id)?.player.name ?? '?'];
+    final String result;
+    if (tb.sameWord) {
+      result = "It's still a tie!";
+    } else if (names.length == 1) {
+      result = '${names.first} wins the tie-breaker!';
+    } else {
+      result = 'Still a tie! ${names.join(' & ')} share the win.';
+    }
+    return LayoutBuilder(builder: (context, c) {
+      final longest = tb.words.map((w) => w.length).reduce(max);
+      // Card: 16 screen padding + 14 card padding on each side.
+      final avail = c.maxWidth - 60;
+      final tile = ((avail - (longest - 1) * 4) / longest).clamp(14.0, 40.0);
+      return Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              BubbleText('Tie-breaker!', size: 36, fill: MwgColors.gold),
+              const SizedBox(height: 6),
+              Text(
+                'Tied on $tiedScore ${tiedScore == 1 ? 'point' : 'points'}. The letters decide it!',
+                textAlign: TextAlign.center,
+                style: uiText(16, weight: FontWeight.w600, color: Colors.white70),
+              ),
+              const SizedBox(height: 16),
+              for (var i = 0; i < tb.playerIds.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _TieBreakCard(
+                    key: ValueKey('tb-${tb.playerIds[i]}'),
+                    player: r.playerById(tb.playerIds[i])?.player,
+                    word: tb.words[i],
+                    tile: tile,
+                    scored: tb.sameWord ? 0 : _tbLetters,
+                    showTotal: !tb.sameWord,
+                    winner: _tbDone && !tb.sameWord && tb.winnerIds.contains(tb.playerIds[i]),
+                    isMe: tb.playerIds[i] == myId,
+                  ),
+                ),
+              const SizedBox(height: 6),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                transitionBuilder: (c, a) => ScaleTransition(
+                    scale: CurvedAnimation(parent: a, curve: Curves.easeOutBack), child: c),
+                child: !_tbDone
+                    ? const SizedBox(height: 10)
+                    : Column(
+                        key: const ValueKey('tb-result'),
+                        children: [
+                          if (tb.sameWord) BubbleText('Same Word!', size: 34, fill: MwgColors.pink),
+                          const SizedBox(height: 6),
+                          BubbleText(result, size: 24, fill: Colors.white),
+                        ],
+                      ),
+              ),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+
   // ---- Stage: words the solo player missed, traced on the board ----
   Widget _missedWords() {
     final n = _missed.length;
     final words = n == 1 ? '1 word' : '$n words';
-    final text = _allShortFound
-        ? 'You found every short word! Here ${n == 1 ? 'is 1 longer word' : 'are $n longer words'} you missed!'
-        : 'Here ${n == 1 ? 'is' : 'are'} $words you missed!';
+    final counted = r.players.first.countedWord;
+    final String text;
+    if (r.settings.longestOnly) {
+      text = n == 0
+          ? 'You found the best word on the board! Nothing could beat ${counted?.toUpperCase() ?? 'it'}. Amazing!'
+          : 'Here ${n == 1 ? 'is' : 'are'} $words you missed! '
+              '${counted == null ? 'Any of them would have scored.' : '${n == 1 ? 'It' : 'Each one'} would have beaten ${counted.toUpperCase()}.'}';
+    } else {
+      text = _allShortFound
+          ? 'You found every short word! Here ${n == 1 ? 'is 1 longer word' : 'are $n longer words'} you missed!'
+          : 'Here ${n == 1 ? 'is' : 'are'} $words you missed!';
+    }
     final w = _missedWord;
     return LayoutBuilder(builder: (context, c) {
       final gridSide = min(c.maxWidth - 120, c.maxHeight * 0.42).clamp(160.0, 340.0);
@@ -566,7 +688,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                         ),
                     ],
                   ),
-                  if (_missedDone) ...[
+                  if (_missedDone && n > 0) ...[
                     const SizedBox(height: 8),
                     Text(
                       w == null ? 'Tap a word to see it on the board' : 'Tap another word to see where it was',
@@ -603,12 +725,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
           const SizedBox(height: 10),
           if (roomy) ...[
             // Keeps the board where it was during the scoring replay.
-            const Visibility(
+            Visibility(
               visible: false,
               maintainSize: true,
               maintainAnimation: true,
               maintainState: true,
-              child: _RulesPanel(),
+              child: _RulesPanel(longestOnly: r.settings.longestOnly),
             ),
             const SizedBox(height: 10),
           ],
@@ -625,7 +747,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
       if (rec != null && rec.newOverallBest)
         _Starburst(text: 'Personal best!', sub: '${r.playerById(myId)?.score ?? 0} points (was ${rec.previousBest})')
       else if (rec != null && rec.newConfigBest)
-        _Starburst(text: 'Personal best!', sub: 'on ${s.gridLabel} · ${s.durationLabel}'),
+        _Starburst(
+            text: 'Personal best!',
+            sub: 'on ${s.gridLabel} · ${s.durationLabel}${s.longestOnly ? ' · Longest word only' : ''}'),
       for (final h in r.highlights.where((h) => h.kind == HighlightKind.group)) _Ribbon(highlight: h),
       for (final h in r.highlights.where((h) => h.kind == HighlightKind.player))
         _HighlightCard(highlight: h, mine: h.playerIds.contains(myId), avatars: [
@@ -699,7 +823,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
   // ---- Stage: winner ----
   Widget _winner() {
     final winners = r.winners;
-    final ranked = List.of(r.players)..sort((a, b) => b.score.compareTo(a.score));
+    final winnerIds = {for (final w in winners) w.player.id};
+    // By score; a tie-breaker's winners go ahead of the players they beat.
+    final ranked = List.of(r.players)
+      ..sort((a, b) {
+        final byScore = b.score.compareTo(a.score);
+        if (byScore != 0) return byScore;
+        return (winnerIds.contains(b.player.id) ? 1 : 0).compareTo(winnerIds.contains(a.player.id) ? 1 : 0);
+      });
     final phrases = ['Voluminous victory', 'Wonderful wordsmithing', 'Legendary lexicon', 'Spectacular spelling'];
     final phrase = phrases[r.board.tiles.join().hashCode.abs() % phrases.length];
     final title = winners.isEmpty
@@ -710,7 +841,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final session = widget.session;
     final host = session.players.where((p) => p.isHost).firstOrNull?.name ?? 'the host';
     var place = 0;
-    int? lastScore;
+    String? lastKey;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -734,8 +865,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
         for (var i = 0; i < ranked.length; i++)
           Builder(builder: (_) {
             final p = ranked[i];
-            if (p.score != lastScore) place = i + 1;
-            lastScore = p.score;
+            final key = '${p.score}/${winnerIds.contains(p.player.id)}';
+            if (key != lastKey) place = i + 1;
+            lastKey = key;
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Row(
@@ -753,7 +885,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
                       player: p.player,
                       isMe: p.player.id == myId,
                       right: _ScoreBadge(score: p.score),
-                      leftExtra: '${p.wordCount} ${p.wordCount == 1 ? 'word' : 'words'}',
+                      leftExtra: r.settings.longestOnly && p.countedWord != null
+                          ? p.countedWord!.toUpperCase()
+                          : '${p.wordCount} ${p.wordCount == 1 ? 'word' : 'words'}',
                     ),
                   ),
                 ],
@@ -920,8 +1054,119 @@ class _MissedChip extends StatelessWidget {
   }
 }
 
+/// One tied player's word in the tie-breaker, letters separated. The first
+/// [scored] letters show their points, with a running total.
+class _TieBreakCard extends StatelessWidget {
+  const _TieBreakCard({
+    super.key,
+    required this.player,
+    required this.word,
+    required this.tile,
+    required this.scored,
+    required this.showTotal,
+    required this.winner,
+    required this.isMe,
+  });
+  final PlayerInfo? player;
+  final String word;
+  final double tile;
+  final int scored;
+  final bool showTotal;
+  final bool winner;
+  final bool isMe;
+
+  @override
+  Widget build(BuildContext context) {
+    final letters = word.toUpperCase().split('');
+    final total = [for (var i = 0; i < letters.length && i < scored; i++) letterScoreOf(letters[i])]
+        .fold(0, (a, b) => a + b);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: winner ? const Color(0xAA2E8A5A) : (isMe ? const Color(0xAA3B2A8C) : MwgColors.card),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: winner ? MwgColors.gold : (isMe ? MwgColors.cyan : MwgColors.cardBorder), width: 3),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              AvatarCircle(avatar: player?.avatar ?? 0, size: 34, ring: false),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(player?.name ?? '?',
+                    overflow: TextOverflow.ellipsis, style: uiText(18, weight: FontWeight.w700)),
+              ),
+              if (winner) const Icon(Icons.emoji_events_rounded, color: MwgColors.gold),
+              if (showTotal)
+                Container(
+                  key: ValueKey('tb-total-${player?.id}'),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: MwgColors.gold,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: MwgColors.tile, width: 2.5),
+                  ),
+                  child: Text('$total', style: uiText(18, weight: FontWeight.w700, color: MwgColors.tile)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var i = 0; i < letters.length; i++) ...[
+                if (i > 0) const SizedBox(width: 4),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      width: tile,
+                      height: tile,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: i < scored ? MwgColors.tileSelected : MwgColors.tile,
+                        borderRadius: BorderRadius.circular(tile * 0.22),
+                        border: Border.all(color: i < scored ? MwgColors.pink : MwgColors.tileEdge, width: 2),
+                      ),
+                      child: Text(letters[i],
+                          style: TextStyle(
+                              fontFamily: fontTile,
+                              fontWeight: FontWeight.w900,
+                              fontSize: tile * 0.55,
+                              height: 1,
+                              color: Colors.white)),
+                    ),
+                    const SizedBox(height: 2),
+                    SizedBox(
+                      height: 20,
+                      child: i < scored
+                          ? TweenAnimationBuilder<double>(
+                              tween: Tween(begin: 0, end: 1),
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOutBack,
+                              builder: (_, v, child) => Transform.scale(scale: v, child: child),
+                              child: Text('${letterScoreOf(letters[i])}',
+                                  style: uiText(15, weight: FontWeight.w700, color: MwgColors.gold)),
+                            )
+                          : null,
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RulesPanel extends StatelessWidget {
-  const _RulesPanel();
+  const _RulesPanel({this.longestOnly = false});
+  final bool longestOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -938,9 +1183,10 @@ class _RulesPanel extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(color: const Color(0x44000000), borderRadius: BorderRadius.circular(16)),
         child: Column(children: [
+          if (longestOnly) row('Only your longest word', 'counts'),
           row('3-letter words', '1 point'),
           row('Every extra letter', '+1 point'),
-          row('Unique words', 'DOUBLE points x2'),
+          if (!longestOnly) row('Unique words', 'DOUBLE points x2'),
         ]),
       ),
     );

@@ -23,6 +23,10 @@ import 'solver.dart';
 const int _formatVersion = 1;
 const int _flagDeflated = 1;
 
+/// Set in the shortest-word byte for a "Longest word only" round. Older apps
+/// read that byte as a shortest word of 5 and fall back to scores only.
+const int _longestOnlyBit = 0x80;
+
 /// Links longer than this drop the word lists and keep only the scores.
 const int maxChallengeUrlLength = 1800;
 
@@ -108,7 +112,7 @@ String encodeChallenge(Challenge c, Dictionary dictionary, {bool includeWords = 
   }
 
   u8(c.settings.gridSize);
-  u8(c.settings.minWordLength);
+  out.addByte(c.settings.minWordLength.clamp(0, 127) | (c.settings.longestOnly ? _longestOnlyBit : 0));
   u8(c.settings.durationSeconds ~/ 10);
   for (final t in c.board.tiles) {
     u8(t.codeUnitAt(0) - 65); // QU is stored as Q
@@ -169,7 +173,9 @@ Challenge decodeChallenge(String data, Dictionary dictionary) {
     int u16() => (u8() << 8) | u8();
 
     final size = u8();
-    final minLen = u8();
+    final lenByte = u8();
+    final longestOnly = lenByte & _longestOnlyBit != 0;
+    final minLen = longestOnly ? 3 : lenByte;
     final duration = u8() * 10;
     if (!GameSettings.gridSizes.contains(size)) throw const FormatException('Bad grid size');
     final tiles = [
@@ -180,7 +186,7 @@ Challenge decodeChallenge(String data, Dictionary dictionary) {
         }(),
     ];
     final board = Board(size, tiles);
-    final settings = GameSettings(gridSize: size, minWordLength: minLen.clamp(3, 5), durationSeconds: duration.clamp(10, 600));
+    final settings = GameSettings(gridSize: size, minWordLength: minLen.clamp(3, 5), durationSeconds: duration.clamp(10, 600), longestOnly: longestOnly);
     final count = u16();
     final hash = u16();
     final solution = _solution(board, dictionary, settings.minWordLength);
